@@ -1,0 +1,20 @@
+# systemd unit: sudo cp deploy/vehicle-dashboard.service /etc/systemd/system/
+# Sửa User= và WorkingDirectory= cho đúng đường dẫn trên Pi.
+[Unit]
+Description=Vehicle Dashboard (Ground Control Station)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/vehicle-dashboard
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/pi/vehicle-dashboard/.venv/bin/python /home/pi/vehicle-dashboard/server.py
+Restart=always
+RestartSec=3
+# cho phép mở cổng serial
+SupplementaryGroups=dialout
+
+[Install]
+WantedBy=multi-user.target

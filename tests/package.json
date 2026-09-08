@@ -1,0 +1,6 @@
+{
+  "name": "vehicle-dashboard-tests",
+  "private": true,
+  "description": "UI smoke test (jsdom) - run: npm install && node ui_smoke.cjs",
+  "dependencies": { "jsdom": "^24.0.0", "ws": "^8.17.0" }
+}
