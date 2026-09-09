@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -27,7 +27,7 @@ def _guard(exc: MissionError):
 
 
 class ReorderRequest(BaseModel):
-    ids: list[int]
+    ids: List[int]
 
 
 class NameRequest(BaseModel):

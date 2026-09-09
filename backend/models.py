@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -15,7 +15,7 @@ AlertLevel = Literal["info", "warning", "critical"]
 class ApiResponse(BaseModel):
     ok: bool = True
     data: Any = None
-    error: Optional[dict[str, str]] = None
+    error: Optional[Dict[str, str]] = None
 
 
 class Waypoint(BaseModel):
@@ -81,7 +81,7 @@ class Telemetry(BaseModel):
 class Mission(BaseModel):
     id: str = ""
     name: str = "Untitled mission"
-    waypoints: list[Waypoint] = []
+    waypoints: List[Waypoint] = []
     status: MissionStatus = "EMPTY"
     uploaded: bool = False
     current_waypoint: int = 0
@@ -97,7 +97,7 @@ class Mission(BaseModel):
 class SavedMission(BaseModel):
     id: str
     name: str
-    waypoints: list[Waypoint]
+    waypoints: List[Waypoint]
     created_at: float
     updated_at: float
 
@@ -115,7 +115,7 @@ class MissionHistoryEntry(BaseModel):
     distance_m: float
     battery_start: float
     battery_end: float
-    track: list[list[float]] = []           # [[lat, lon], ...] đã giảm mẫu
+    track: List[List[float]] = []           # [[lat, lon], ...] đã giảm mẫu
 
 
 class EventEntry(BaseModel):
@@ -150,4 +150,4 @@ class LoginRequest(BaseModel):
 
 class CommandRequest(BaseModel):
     command: str
-    params: dict[str, Any] = {}
+    params: Dict[str, Any] = {}
