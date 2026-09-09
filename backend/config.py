@@ -36,6 +36,7 @@ def _load_dotenv(path: Path) -> None:
 
 
 _load_dotenv(ROOT / ".env")
+_load_dotenv(ROOT / "config.env")
 
 
 def _env(key: str, default: Any) -> Any:
