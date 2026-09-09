@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import socket
 import time
-from typing import Any
+from typing import Any, Dict
 
 from fastapi import APIRouter
 
@@ -30,7 +32,7 @@ def get_config() -> dict:
 
 
 @router.put("")
-def update_config(patch: dict[str, Any], user: dict = CurrentUser) -> dict:
+def update_config(patch: Dict[str, Any], user: dict = CurrentUser) -> dict:
     try:
         changed = settings.update(patch)
     except ValueError as exc:
