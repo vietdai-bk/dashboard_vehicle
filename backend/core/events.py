@@ -29,6 +29,9 @@ class EventLog:
         try:
             lines = self._path.read_text(encoding="utf-8").splitlines()[-settings.event_log_size:]
             for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
                 entry = EventEntry(**json.loads(line))
                 self._events.append(entry)
                 self._next_id = max(self._next_id, entry.id + 1)
