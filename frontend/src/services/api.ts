@@ -76,6 +76,10 @@ export const api = {
       put<{ waypoint: Waypoint; mission: Mission }>(`/api/mission/waypoints/${id}`, patch),
     deleteWaypoint: (id: number) => del<Mission>(`/api/mission/waypoints/${id}`),
     reorder: (ids: number[]) => put<Mission>("/api/mission/waypoints/reorder", { ids }),
+    calculateRoute: (body?: { vehicle_lat?: number; vehicle_lon?: number; waypoints?: [number, number][] }) =>
+      post<{ route: [number, number][]; distance_m: number; duration_s: number; is_street: boolean; turn_points?: any[]; mission?: Mission }>("/api/mission/route", body),
+    clearRoute: () => del<Mission>("/api/mission/route"),
+    applyTurns: () => post<Mission>("/api/mission/apply-turns"),
     upload: () => post<Mission>("/api/mission/upload"),
     start: () => post<Mission>("/api/mission/start"),
     stop: () => post<Mission>("/api/mission/stop"),

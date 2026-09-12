@@ -44,5 +44,21 @@ export const IconSatellite = (p: SVGProps<SVGSVGElement>) => (
 export const IconTrash = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6" /></svg>
 );
+export const IconDownload = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" /></svg>
+);
+export const IconRoute = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><circle cx="6" cy="19" r="3" /><path d="M9 19h8.5a4.5 4.5 0 0 0 0-9H7a3 3 0 0 1 0-6h11" /><circle cx="18" cy="4" r="3" /></svg>
+);
+export const IconCamera = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" /><circle cx="12" cy="13" r="3" /></svg>
+);
+export const IconSwap = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><path d="m16 3 4 4-4 4" /><path d="M20 7H4" /><path d="m8 21-4-4 4-4" /><path d="M4 17h16" /></svg>
+);
+export const IconRefresh = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" /></svg>
+);
+
 
 

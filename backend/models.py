@@ -25,6 +25,8 @@ class Waypoint(BaseModel):
     order: int = 0
     altitude: float = 0.0
     name: str = ""
+    telemetry: Optional[Dict[str, Any]] = None
+    reached_at: Optional[float] = None
 
 
 class WaypointCreate(BaseModel):
@@ -89,6 +91,7 @@ class Mission(BaseModel):
     started_at: Optional[float] = None
     ended_at: Optional[float] = None
     upload_message: str = ""
+    route_points: List[List[float]] = []
 
 
 class SavedMission(BaseModel):

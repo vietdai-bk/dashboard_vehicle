@@ -69,7 +69,9 @@ class MockTelemetryProvider(TelemetryProvider):
         self.armed = False
         self.state = "DISARMED"           # DISARMED ARMED RUNNING PAUSED STOPPED RTL ERROR
         self.waypoints: list[dict[str, Any]] = []
+        self.route_points: list[list[float]] = []
         self.wp_index = 0
+        self.route_index = 0
         self.completed = 0
         self.mission_state = "EMPTY"
         self.distance_travelled = 0.0
@@ -96,6 +98,8 @@ class MockTelemetryProvider(TelemetryProvider):
         self._task = asyncio.create_task(self._loop_task(), name="mock-vehicle")
         log.info("Mock telemetry provider started (home %.5f, %.5f)", self.lat, self.lon)
         self._emit({"type": "log", "level": "INFO", "message": "Mock vehicle online"})
+        self._emit_telemetry()
+        self._emit_sensor()
 
     async def stop(self) -> None:
         self._running = False
@@ -158,7 +162,9 @@ class MockTelemetryProvider(TelemetryProvider):
             if not (-90 <= wp["lat"] <= 90 and -180 <= wp["lon"] <= 180):
                 return CommandResult(False, f"Invalid waypoint {wp.get('id')}")
         self.waypoints = list(wps)
+        self.route_points = list(params.get("route_points") or [])
         self.wp_index = 0
+        self.route_index = 0
         self.completed = 0
         self.mission_state = "UPLOADED"
         return CommandResult(True, f"{len(wps)} waypoints stored", {"count": len(wps)})
@@ -171,11 +177,13 @@ class MockTelemetryProvider(TelemetryProvider):
         if self.state == "RUNNING":
             return CommandResult(False, "Mission already running")
         self.wp_index = 0
+        self.route_index = 0
         self.completed = 0
         self.state = "RUNNING"
         self.mission_state = "RUNNING"
         self._emit_mission(force=True)
         return CommandResult(True, "Mission started")
+
 
     def _cmd_stop(self, _: dict[str, Any]) -> CommandResult:
         if self.state not in ("RUNNING", "PAUSED", "RTL"):
@@ -236,9 +244,14 @@ class MockTelemetryProvider(TelemetryProvider):
         accept = settings.acceptance_radius_m
 
         target: Optional[tuple[float, float]] = None
+        current_wp: Optional[dict[str, Any]] = None
         if self.state == "RUNNING" and self.wp_index < len(self.waypoints):
-            wp = self.waypoints[self.wp_index]
-            target = (wp["lat"], wp["lon"])
+            current_wp = self.waypoints[self.wp_index]
+            if self.route_points and self.route_index < len(self.route_points):
+                pt = self.route_points[self.route_index]
+                target = (pt[0], pt[1])
+            else:
+                target = (current_wp["lat"], current_wp["lon"])
         elif self.state == "RTL":
             target = self.home
 
@@ -259,8 +272,22 @@ class MockTelemetryProvider(TelemetryProvider):
             self.distance_travelled += travelled
             # pin giảm theo thời gian, nhanh hơn khi chạy nhanh
             self.battery -= settings.mock_battery_drain_pct_per_min / 60.0 * dt * (1 + self.speed_mps / cruise)
-            if dist <= accept:
-                if self.state == "RUNNING":
+
+            # Advance route vertex if following street route points
+            if self.state == "RUNNING" and self.route_points and self.route_index < len(self.route_points):
+                if dist <= max(3.0, accept * 0.8):
+                    self.route_index += 1
+
+            if current_wp is not None:
+                wp_dist = haversine_m(self.lat, self.lon, current_wp["lat"], current_wp["lon"])
+                wp_threshold = max(accept, 25.0) if self.route_points else accept
+                next_wp_closer = False
+                if self.wp_index + 1 < len(self.waypoints):
+                    next_wp = self.waypoints[self.wp_index + 1]
+                    next_dist = haversine_m(self.lat, self.lon, next_wp["lat"], next_wp["lon"])
+                    if next_dist < wp_dist and wp_dist <= 45.0:
+                        next_wp_closer = True
+                if wp_dist <= wp_threshold or next_wp_closer:
                     self.completed += 1
                     self.wp_index += 1
                     self._emit({"type": "log", "level": "INFO",
@@ -269,10 +296,16 @@ class MockTelemetryProvider(TelemetryProvider):
                         self._finish_mission("COMPLETED")
                     else:
                         self._emit_mission(force=True)
-                else:  # RTL về tới home
-                    self.state = "ARMED"
-                    self.speed_mps = 0.0
-                    self._emit({"type": "log", "level": "INFO", "message": "Arrived at launch point"})
+            elif self.state == "RUNNING" and self.route_points and self.route_index >= len(self.route_points):
+                self.completed = len(self.waypoints)
+                self.wp_index = len(self.waypoints)
+                self._finish_mission("COMPLETED")
+                self._emit({"type": "log", "level": "INFO", "message": "All waypoints reached along route"})
+            elif self.state == "RTL" and dist <= accept:
+                self.state = "ARMED"
+                self.speed_mps = 0.0
+                self._finish_mission("COMPLETED")
+                self._emit({"type": "log", "level": "INFO", "message": "Arrived at launch point"})
         else:
             # đứng yên: giảm tốc về 0, pin tự xả nhẹ khi ARMED, GPS jitter nhỏ
             self.speed_mps = max(0.0, self.speed_mps - 3.0 * dt)

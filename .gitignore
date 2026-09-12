@@ -1,7 +1,159 @@
-.venv/
-__pycache__/
-*.pyc
+# ==============================================================================
+# 1. MÔI TRƯỜNG & BẢO MẬT (ENV & SECRETS)
+# ==============================================================================
 .env
+.env.*
+!.env.example
+config.env
+!config.env.example
+*.pem
+*.key
+*.cert
+*.crt
+
+# ==============================================================================
+# 2. PYTHON & MÔI TRƯỜNG ẢO (VIRTUAL ENVIRONMENT)
+# ==============================================================================
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Byte-compiled / cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Python distribution / packaging
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Python testing & coverage
+.pytest_cache/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+htmlcov/
+
+# Type checking / Linters
+.mypy_cache/
+.pyre/
+.pytype/
+.ruff_cache/
+
+# ==============================================================================
+# 3. FRONTEND (NODE.JS / VITE / REACT / TYPESCRIPT)
+# ==============================================================================
+node_modules/
+frontend/node_modules/
+tests/node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+frontend/dist/
+build/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Vite / bundler caches
+.vite/
+frontend/.vite/
+.turbo/
+
+# ==============================================================================
+# 4. DỮ LIỆU & RUNTIME CỦA HỆ THỐNG (VEHICLE DASHBOARD DATA & RUNTIME)
+# ==============================================================================
+# Dữ liệu telemetry, nhiệm vụ, lịch sử runtime (giữ lại cấu trúc thư mục với .gitkeep)
 data/*.json
 data/*.jsonl
-frontend/node_modules/
+data/*.csv
+data/*.log
+!data/.gitkeep
+
+# Database & log files
+*.sqlite
+*.sqlite3
+*.db
+*.log
+logs/
+
+# ==============================================================================
+# 5. IDE & TRÌNH SOẠN THẢO (IDEs & EDITORS)
+# ==============================================================================
+# Visual Studio Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# PyCharm / JetBrains
+.idea/
+
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+# Vim / Emacs
+*~
+*.swp
+*.swo
+.#*
+
+# ==============================================================================
+# 6. HỆ ĐIỀU HÀNH (OS GENERATED FILES)
+# ==============================================================================
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+[Dd]esktop.ini
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# ==============================================================================
+# 7. TEMPORARY & BACKUP FILES
+# ==============================================================================
+*.tmp
+*.temp
+*.bak
+*.orig

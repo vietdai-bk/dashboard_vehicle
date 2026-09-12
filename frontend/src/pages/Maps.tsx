@@ -15,6 +15,7 @@ export function MapsPage() {
   const alerts = useStore((s) => s.alerts.filter((a) => a.active));
   const [busy, setBusy] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  const [selectedWpId, setSelectedWpId] = useState<number | null>(null);
   const active = mission?.status === "RUNNING" || mission?.status === "PAUSED";
   const editable = !active && mission?.status !== "UPLOADING";
 
@@ -62,7 +63,13 @@ export function MapsPage() {
           </div>
         )}
         <div className="map-holder">
-          <VehicleMap mission={mission} editable={editable} onMapClick={(la, lo) => void addWaypoint(la, lo)} onWaypointMoved={(id, la, lo) => void moveWaypoint(id, la, lo)} />
+          <VehicleMap
+            mission={mission}
+            editable={editable}
+            selectedWaypointId={selectedWpId}
+            onMapClick={(la, lo) => void addWaypoint(la, lo)}
+            onWaypointMoved={(id, la, lo) => void moveWaypoint(id, la, lo)}
+          />
         </div>
         <div className="card waypoints-card">
           <div className="card-h">
@@ -70,7 +77,14 @@ export function MapsPage() {
             <span className="muted small">{mission?.waypoints.length ?? 0} points</span>
           </div>
           <div className="card-b tight">
-            <WaypointList mission={mission} editable={editable} onUpdate={(id, p) => void updateWaypoint(id, p)} onDelete={(id) => void deleteWaypoint(id)} onReorder={(ids) => void reorder(ids)} />
+            <WaypointList
+              mission={mission}
+              editable={editable}
+              onSelect={(id) => setSelectedWpId(id)}
+              onUpdate={(id, p) => void updateWaypoint(id, p)}
+              onDelete={(id) => void deleteWaypoint(id)}
+              onReorder={(ids) => void reorder(ids)}
+            />
           </div>
         </div>
       </div>

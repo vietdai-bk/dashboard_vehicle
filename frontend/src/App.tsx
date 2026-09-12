@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Layout } from "./components/Layout";
+import { CameraPage } from "./pages/Camera";
 import { LoginPage } from "./pages/Login";
 import { LogsPage } from "./pages/Logs";
 import { MapsPage } from "./pages/Maps";
@@ -58,6 +59,7 @@ export default function App() {
         <Route element={<Layout />}>
           <Route index element={<Navigate to="/maps" replace />} />
           <Route path="/maps" element={<MapsPage />} />
+          <Route path="/camera" element={<CameraPage />} />
           <Route path="/telemetry" element={<TelemetryPage />} />
           <Route path="/missions" element={<MissionsPage />} />
           <Route path="/logs" element={<LogsPage />} />

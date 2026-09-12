@@ -8,10 +8,11 @@ interface Props {
   onUpdate: (id: number, patch: Partial<Pick<Waypoint, "latitude" | "longitude" | "altitude" | "name">>) => void;
   onDelete: (id: number) => void;
   onReorder: (ids: number[]) => void;
+  onSelect?: (id: number) => void;
 }
 
 /** Danh sách waypoint: sửa toạ độ inline, xoá, đổi thứ tự bằng nút hoặc kéo thả. */
-export function WaypointList({ mission, editable, onUpdate, onDelete, onReorder }: Props) {
+export function WaypointList({ mission, editable, onUpdate, onDelete, onReorder, onSelect }: Props) {
   const wps = mission?.waypoints ?? [];
   const [drag, setDrag] = useState<number | null>(null);
   const [over, setOver] = useState<number | null>(null);
@@ -54,10 +55,30 @@ export function WaypointList({ mission, editable, onUpdate, onDelete, onReorder 
             onDrop={() => drop(i)}
             onDragEnd={() => { setDrag(null); setOver(null); }}
           >
-            <span className="idx">{i + 1}</span>
+            <span
+              className="idx"
+              style={{ cursor: "pointer" }}
+              onClick={() => onSelect?.(wp.id)}
+              title="Xem trên bản đồ và thông số đo đạc"
+            >
+              {i + 1}
+            </span>
             <div className="wp-fields">
-              <input className="input sm wp-name" defaultValue={wp.name} disabled={!editable}
-                onBlur={(e) => e.target.value !== wp.name && onUpdate(wp.id, { name: e.target.value })} aria-label="Waypoint name" placeholder="Name" />
+              <div className="row" style={{ gap: 6, alignItems: "center" }}>
+                <input className="input sm wp-name" defaultValue={wp.name} disabled={!editable}
+                  onBlur={(e) => e.target.value !== wp.name && onUpdate(wp.id, { name: e.target.value })} aria-label="Waypoint name" placeholder="Name" />
+                {wp.telemetry && (
+                  <button
+                    type="button"
+                    className="badge ok mono"
+                    style={{ cursor: "pointer", border: 0, padding: "2px 6px" }}
+                    onClick={() => onSelect?.(wp.id)}
+                    title={`AQI: ${wp.telemetry.aqi != null ? wp.telemetry.aqi.toFixed(0) : "--"}. Nhấp để xem thông số chi tiết`}
+                  >
+                    AQI {wp.telemetry.aqi != null ? wp.telemetry.aqi.toFixed(0) : "--"}
+                  </button>
+                )}
+              </div>
               <div className="wp-alt-wrap">
                 <span className="muted small">Alt</span>
                 <input className="input sm wp-alt" type="number" step="1" defaultValue={wp.altitude} disabled={!editable} onBlur={(e) => commit(wp, "altitude", e.target.value)} aria-label="Altitude" />

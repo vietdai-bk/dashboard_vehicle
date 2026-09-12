@@ -188,20 +188,40 @@ a { color: var(--primary); }
 .fullmap-mission-name { font-weight: 700; font-size: 13px; color: var(--text); }
 .fullmap-hint-text { font-size: 12px; color: var(--text-2); border-left: 1px solid var(--line); padding-left: 12px; white-space: nowrap; }
 .map-wrap .leaflet-container { height: 100%; width: 100%; background: #dfe4ea; font: inherit; }
+.map-wrap.editable .leaflet-container { cursor: crosshair !important; }
+.map-wrap.editable .leaflet-grab { cursor: crosshair !important; }
 .map-toolbar { position: absolute; top: 8px; right: 8px; z-index: 500; display: flex; flex-direction: column; gap: 4px; }
 .map-toolbar .btn { background: var(--surface); box-shadow: var(--shadow); }
 .map-toolbar .btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 .map-hint { position: absolute; left: 8px; bottom: 8px; z-index: 500; background: rgba(255,255,255,.92); border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 8px; font-size: 11px; color: var(--text-2); font-family: var(--mono); }
-.wp-icon { width: 24px; height: 24px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1.5px rgba(0,0,0,.35); background: var(--primary); color: #fff; font: 700 10px var(--mono); display: grid; place-items: center; }
+
+/* Waypoint pin marker with sharp bottom pointer tip pointing exactly to coordinates */
+.wp-marker-wrapper { position: relative !important; overflow: visible !important; }
+.wp-pin-container { position: relative; width: 26px; height: 31px; display: flex; flex-direction: column; align-items: center; }
+.wp-icon { width: 24px; height: 24px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 1.5px 5px rgba(0,0,0,.35); background: var(--primary); color: #fff; font: 700 10px var(--mono); display: grid; place-items: center; cursor: pointer; pointer-events: auto; z-index: 2; transition: transform 0.15s ease, background-color 0.15s ease; }
+.wp-icon:hover { transform: scale(1.12); }
 .wp-icon.done { background: var(--ok); }
-.wp-icon.current { background: var(--warn); box-shadow: 0 0 0 4px rgba(178,94,0,.3), 0 0 0 1.5px rgba(0,0,0,.35); }
+.wp-icon.current { background: var(--warn); box-shadow: 0 0 0 4px rgba(178,94,0,.3), 0 1.5px 5px rgba(0,0,0,.35); }
 .wp-icon.start { background: var(--text); }
+.wp-icon.turn { background: #0284c7; }
+
+/* Mũi kim định vị chính xác ở đáy pin */
+.wp-pin-tip { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 7px solid var(--primary); margin-top: -1px; filter: drop-shadow(0 1.5px 2px rgba(0,0,0,0.35)); z-index: 1; }
+.wp-pin-tip.turn { border-top-color: #0284c7; }
+.wp-pin-tip.done { border-top-color: var(--ok); }
+.wp-pin-tip.current { border-top-color: var(--warn); }
+.wp-pin-tip.start { border-top-color: var(--text); }
+
+.wp-name-badge { position: absolute; bottom: 33px; left: 50%; transform: translateX(-50%); background: rgba(20, 24, 31, 0.9); color: #fff; font-family: var(--mono); font-size: 10px; font-weight: 700; padding: 1.5px 6px; border-radius: 3px; white-space: nowrap; pointer-events: none; box-shadow: 0 1.5px 5px rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.25); letter-spacing: 0.02em; z-index: 50; }
+.wp-name-badge.done { background: var(--ok); color: #fff; border-color: rgba(255,255,255,0.4); box-shadow: 0 1.5px 6px rgba(21,122,58,0.4); }
+.wp-name-badge.current { background: var(--warn); color: #fff; border-color: rgba(255,255,255,0.4); box-shadow: 0 1.5px 6px rgba(178,94,0,0.4); }
+.wp-name-badge.turn { background: #0284c7; color: #fff; border-color: rgba(255,255,255,0.4); }
 .veh-icon { width: 30px; height: 30px; transition: transform .35s linear; will-change: transform; }
 .veh-icon svg { width: 100%; height: 100%; filter: drop-shadow(0 1px 2px rgba(0,0,0,.45)); }
 .home-icon { width: 18px; height: 18px; border-radius: 3px; background: #fff; border: 2px solid var(--text); font: 700 10px var(--mono); display: grid; place-items: center; color: var(--text); }
 .leaflet-div-icon { background: transparent; border: 0; }
 
-.waypoints-card { flex: 0 0 auto; max-height: 220px; display: flex; flex-direction: column; min-height: 0; }
+.waypoints-card { flex: 0 0 175px !important; height: 175px !important; min-height: 175px !important; max-height: 175px !important; display: flex !important; flex-direction: column !important; }
 .waypoints-card .card-b { flex: 1 1 auto; overflow-y: auto; min-height: 0; }
 .wp-list { display: flex; flex-direction: column; gap: 5px; max-height: 165px; overflow-y: auto; padding-right: 2px; }
 .wp-row { display: grid; grid-template-columns: 24px 1fr auto; gap: 8px; align-items: center; padding: 4px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); cursor: grab; transition: border-color .15s; }
@@ -314,3 +334,536 @@ a { color: var(--primary); }
   .log-row { grid-template-columns: 70px 1fr; }
   .log-row .cat { display: none; }
 }
+
+/* ---------------- waypoint popup ---------------- */
+.leaflet-popup-content-wrapper {
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  box-shadow: 0 10px 25px rgba(0,0,0,0.22);
+  padding: 0;
+  overflow: hidden;
+}
+.leaflet-popup-content {
+  margin: 0;
+  min-width: 220px;
+  max-width: 280px;
+  font-family: inherit;
+  line-height: 1.4;
+}
+.leaflet-popup-tip {
+  background: var(--surface);
+}
+.wp-popup-header {
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.wp-popup-header .title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+}
+.wp-popup-body {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+}
+.wp-popup-aqi {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+.wp-metrics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+  padding-top: 4px;
+}
+.wp-metric-item {
+  display: flex;
+  flex-direction: column;
+}
+.wp-metric-item .lbl {
+  font-size: 10px;
+  color: var(--text-3);
+  text-transform: uppercase;
+}
+.wp-metric-item .val {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* =====================================================================
+   CAMERA PAGE & POP-UP (PIP) MAP STYLES
+   ===================================================================== */
+.camera-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 8px;
+  padding: 10px 14px;
+}
+
+.camera-header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0 14px;
+  height: 42px;
+  min-height: 42px;
+  max-height: 42px;
+  box-shadow: var(--shadow);
+  position: relative;
+}
+
+.camera-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+}
+
+.camera-title {
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  font-family: var(--font);
+}
+
+.camera-actions-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.btn-group {
+  display: inline-flex;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+}
+
+.btn-group .btn {
+  border-radius: 0;
+  border: none;
+  border-right: 1px solid var(--line);
+}
+
+.btn-group .btn:last-child {
+  border-right: none;
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--line);
+  margin: 0 4px;
+}
+
+.stream-url-bar-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 14px;
+  z-index: 1500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+  min-width: 480px;
+  animation: slideDown 0.15s ease-out;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.camera-stage-container {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  background: #090d14;
+}
+
+.main-viewport-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Viewport Containers */
+.camera-viewport {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: #0b111a;
+  overflow: hidden;
+}
+
+.camera-media {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.map-viewport {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.map-viewport .map-wrap {
+  width: 100%;
+  height: 100%;
+  border: none;
+  border-radius: 0;
+}
+
+/* =====================================================================
+   HUD OVERLAY: NỀN TRẮNG CHỮ ĐEN (LIGHT INDUSTRIAL GCS THEME)
+   ===================================================================== */
+.camera-hud-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 14px 18px;
+}
+
+.hud-corner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: auto;
+}
+
+.hud-corner.top-left {
+  align-items: flex-start;
+}
+
+.hud-corner.top-right {
+  align-items: flex-end;
+  position: absolute;
+  top: 14px;
+  right: 18px;
+}
+
+.hud-corner.bottom-left {
+  align-items: flex-start;
+  position: absolute;
+  bottom: 14px;
+  left: 18px;
+}
+
+.hud-corner.bottom-right {
+  align-items: flex-end;
+  position: absolute;
+  bottom: 14px;
+  right: 18px;
+}
+
+.hud-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: var(--radius);
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--mono);
+  background: #ffffff;
+  border: 1px solid var(--line-strong);
+  color: #14181f;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14);
+}
+
+.hud-badge.live {
+  background: #ffffff;
+  border-color: var(--line-strong);
+  color: #14181f;
+}
+
+.hud-badge.live .live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: none;
+}
+
+.hud-badge.armed {
+  background: #ffffff;
+  border-color: var(--line-strong);
+  color: #14181f;
+}
+
+.hud-badge.disarmed {
+  background: #ffffff;
+  border-color: var(--line-strong);
+  color: var(--text-2);
+}
+
+.hud-item {
+  background: #ffffff;
+  padding: 3px 8px;
+  border-radius: var(--radius);
+  font-size: 11px;
+  font-weight: 600;
+  color: #14181f;
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14);
+  font-family: var(--mono);
+}
+
+.hud-item.text-ok {
+  background: #ffffff;
+  color: #14181f;
+  border-color: var(--line-strong);
+}
+
+.hud-metrics-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hud-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: var(--radius);
+  background: #ffffff;
+  border: 1px solid var(--line-strong);
+  font-size: 11px;
+  font-weight: 600;
+  color: #14181f;
+  font-family: var(--mono);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14);
+}
+
+.hud-pill span {
+  color: var(--text-2);
+  font-weight: 700;
+}
+
+.hud-pill b {
+  color: #14181f;
+  font-weight: 700;
+}
+
+.hud-pill small {
+  color: var(--text-3);
+  font-weight: 500;
+}
+
+.hud-pill.ok,
+.hud-pill.warn,
+.hud-pill.danger,
+.hud-pill.info {
+  background: #ffffff;
+  border-color: var(--line-strong);
+  color: #14181f;
+}
+
+.hud-speed-gauge {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  background: #ffffff;
+  padding: 5px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.hud-speed-gauge .speed-val {
+  font-size: 26px;
+  font-weight: 800;
+  color: #14181f;
+  line-height: 1;
+  font-family: var(--mono);
+}
+
+.hud-speed-gauge .speed-unit {
+  display: flex;
+  flex-direction: column;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-2);
+  font-family: var(--font);
+}
+
+.hud-coords {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: #ffffff;
+  padding: 5px 8px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line-strong);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #14181f;
+  text-align: right;
+  font-family: var(--mono);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14);
+}
+
+
+/* =====================================================================
+   FLOATING POP-UP (PIP) MAP STYLES
+   ===================================================================== */
+.floating-pip-card {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  z-index: 1200;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(20, 24, 31, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: width 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), height 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* PiP Sizes */
+.floating-pip-card.pip-sm {
+  width: 340px;
+  height: 230px;
+}
+
+.floating-pip-card.pip-md {
+  width: 490px;
+  height: 330px;
+}
+
+.floating-pip-card.pip-lg {
+  width: 660px;
+  height: 430px;
+}
+
+.pip-header {
+  height: 32px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  user-select: none;
+  font-family: var(--font);
+}
+
+.pip-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-2);
+  font-family: var(--font);
+}
+
+.pip-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pip-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  background: #dfe4ea;
+  overflow: hidden;
+}
+
+.pip-body .map-wrap {
+  border: none;
+  border-radius: 0;
+}
+
+.pip-body .map-toolbar {
+  top: 6px;
+  right: 6px;
+}
+
+.pip-body .map-toolbar .btn {
+  height: 22px;
+  padding: 0 6px;
+  font-size: 10.5px;
+}
+
+.pip-body .map-hint {
+  bottom: 4px;
+  left: 4px;
+  font-size: 10px;
+  padding: 2px 6px;
+}
+
+.pip-footer {
+  height: 22px;
+  background: var(--surface-2);
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  font-size: 10.5px;
+  color: var(--text-2);
+  font-family: var(--mono);
+}
+
+
+.pip-reopen-btn {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  z-index: 1200;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+  font-weight: 600;
+}
+

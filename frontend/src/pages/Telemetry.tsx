@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { IconDownload } from "../components/icons";
 import { LineChart, type Series } from "../components/LineChart";
 import { useStore } from "../hooks/useStore";
+import { toast } from "../hooks/useToast";
 import { api } from "../services/api";
 import { setState } from "../stores/store";
 import { SENSORS, type SensorDef, type Telemetry } from "../types";
@@ -36,6 +38,7 @@ export function TelemetryPage() {
   const connected = useStore((s) => s.vehicle.connected);
   const [range, setRange] = useState(300);
   const [now, setNow] = useState(Date.now());
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => { const t = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(t); }, []);
   // backfill lịch sử từ server khi mở page (nếu store chưa có)
@@ -58,6 +61,77 @@ export function TelemetryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [history]);
 
+  const handleExportCsv = async () => {
+    try {
+      setExporting(true);
+      let data: Telemetry[] = [];
+      try {
+        data = await api.telemetry.history(range);
+      } catch {
+        data = [];
+      }
+      if (!data || data.length === 0) {
+        const minTime = Date.now() / 1000 - range;
+        data = history.filter((h) => h.timestamp >= minTime);
+      }
+      if (data.length === 0) {
+        toast("warning", "Không có dữ liệu telemetry trong khoảng thời gian đã chọn");
+        return;
+      }
+      data = [...data].sort((a, b) => a.timestamp - b.timestamp);
+
+      const headers = [
+        "Timestamp",
+        "DateTime_UTC",
+        "DateTime_Local",
+        "AQI",
+        "PM2.5 (ug/m3)",
+        "CO2 (ppm)",
+        "CO (ppm)",
+        "TVOC (ppb)",
+        "NOx (index)",
+        "Temperature (C)",
+        "Humidity (%)",
+      ];
+
+      const rows = data.map((d) => {
+        const dt = new Date(d.timestamp * 1000);
+        return [
+          d.timestamp.toFixed(2),
+          `"${dt.toISOString()}"`,
+          `"${dt.toLocaleString()}"`,
+          d.aqi != null ? d.aqi.toFixed(1) : "",
+          d.pm25 != null ? d.pm25.toFixed(1) : "",
+          d.co2 != null ? d.co2.toFixed(1) : "",
+          d.co != null ? d.co.toFixed(2) : "",
+          d.tvoc != null ? d.tvoc.toFixed(1) : "",
+          d.nox != null ? d.nox.toFixed(1) : "",
+          d.temperature != null ? d.temperature.toFixed(1) : "",
+          d.humidity != null ? d.humidity.toFixed(1) : "",
+        ].join(",");
+      });
+
+      const csvContent = "\uFEFF" + [headers.join(","), ...rows].join("\r\n");
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const rangeObj = RANGES.find((r) => r.s === range);
+      const currentRangeLabel = rangeObj ? rangeObj.label.replace(/\s+/g, "_") : `${range}s`;
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `telemetry_${currentRangeLabel}_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      toast("success", `Đã xuất ${data.length} mẫu dữ liệu (${rangeObj?.label ?? ""})`);
+    } catch (err) {
+      toast("error", `Lỗi xuất file CSV: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const groups: { key: SensorDef["group"]; label: string }[] = [
     { key: "environment", label: "ENVIRONMENT" }, { key: "air", label: "AIR QUALITY" },
   ];
@@ -76,10 +150,20 @@ export function TelemetryPage() {
         </section>
       ))}
       <section className="stack" style={{ gap: 8 }}>
-        <div className="row" style={{ justifyContent: "space-between" }}>
+        <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
           <span className="label">REALTIME CHARTS</span>
-          <div className="range-tabs" role="tablist">
-            {RANGES.map((r) => <button key={r.s} role="tab" aria-selected={range === r.s} className={range === r.s ? "active" : ""} onClick={() => setRange(r.s)}>{r.label}</button>)}
+          <div className="row" style={{ gap: 10, alignItems: "center" }}>
+            <button
+              className="btn sm"
+              onClick={() => void handleExportCsv()}
+              disabled={exporting}
+              title={`Xuất dữ liệu telemetry trong ${RANGES.find((r) => r.s === range)?.label ?? ""} ra file CSV`}
+            >
+              <IconDownload width={14} height={14} /> {exporting ? "Đang xuất..." : `Xuất CSV (${RANGES.find((r) => r.s === range)?.label ?? ""})`}
+            </button>
+            <div className="range-tabs" role="tablist">
+              {RANGES.map((r) => <button key={r.s} role="tab" aria-selected={range === r.s} className={range === r.s ? "active" : ""} onClick={() => setRange(r.s)}>{r.label}</button>)}
+            </div>
           </div>
         </div>
         <div className="chart-grid">

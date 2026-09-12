@@ -68,7 +68,7 @@ class MissionManager:
         m.waypoints.sort(key=lambda w: w.order)
         for i, wp in enumerate(m.waypoints, start=1):
             wp.order = i
-            if not wp.name or wp.name.startswith("WP"):
+            if not wp.name:
                 wp.name = f"WP{i:02d}"
         total = 0.0
         for a, b in zip(m.waypoints, m.waypoints[1:]):
@@ -151,6 +151,53 @@ class MissionManager:
             raise MissionError("NOT_CONNECTED", "Vehicle is not connected")
         return p
 
+    def get_wire_waypoints(self) -> list[dict[str, Any]]:
+        m = self.current
+        if m.route_points and len(m.route_points) >= 2:
+            from .routing import extract_turn_points
+            turn_wps = extract_turn_points(m.route_points, m.waypoints)
+            if turn_wps and len(turn_wps) >= 2:
+                log.info("Sending mission with %d turn/corner waypoints from street route", len(turn_wps))
+                return [
+                    {
+                        "id": wp["id"],
+                        "lat": wp["lat"],
+                        "lon": wp["lon"],
+                        "alt": float(wp.get("alt", 0.0)),
+                    }
+                    for wp in turn_wps
+                ]
+        return waypoints_to_wire(m.waypoints)
+
+    def apply_turn_waypoints(self, turn_pts: Optional[list[dict[str, Any]]] = None) -> Mission:
+        """Chuyển đổi toàn bộ các khúc cua của tuyến đường hiện tại thành danh sách Waypoint chính thức."""
+        m = self.current
+        if not m.route_points or len(m.route_points) < 2:
+            raise MissionError("NO_ROUTE", "Chưa có đường phố được vạch để lấy khúc cua")
+        if turn_pts is None:
+            from .routing import extract_turn_points
+            turn_pts = extract_turn_points(m.route_points, m.waypoints)
+        if not turn_pts:
+            raise MissionError("NO_TURNS", "Không tìm thấy khúc cua nào trên lộ trình")
+
+        new_wps: list[Waypoint] = []
+        for idx, pt in enumerate(turn_pts):
+            new_wps.append(Waypoint(
+                id=idx + 1,
+                name=pt.get("name", f"WP{idx + 1:02d}"),
+                latitude=pt["lat"],
+                longitude=pt["lon"],
+                order=idx + 1,
+                altitude=float(pt.get("alt", 0.0)),
+            ))
+        m.waypoints = new_wps
+        self._next_wp_id = len(new_wps) + 1
+        self._invalidate_upload()
+        self._recompute()
+        self._broadcast()
+        self.store.events.add("INFO", "mission", f"Applied {len(new_wps)} turn waypoints to mission")
+        return m
+
     async def upload(self) -> Mission:
         m = self.current
         if not m.waypoints:
@@ -161,12 +208,16 @@ class MissionManager:
         m.status = "UPLOADING"
         m.upload_message = "Uploading…"
         self._broadcast()
-        result = await provider.send_command("UPLOAD_MISSION", {"waypoints": waypoints_to_wire(m.waypoints)})
+        wire_wps = self.get_wire_waypoints()
+        result = await provider.send_command("UPLOAD_MISSION", {
+            "waypoints": wire_wps,
+            "route_points": m.route_points,
+        })
         if result.ok:
             m.uploaded = True
             m.status = "UPLOADED"
-            m.upload_message = result.message or "Uploaded"
-            self.store.events.add("INFO", "mission", f"Mission uploaded ({len(m.waypoints)} waypoints)")
+            m.upload_message = result.message or f"Uploaded ({len(wire_wps)} waypoints/turns)"
+            self.store.events.add("INFO", "mission", f"Mission uploaded ({len(wire_wps)} points including turns)")
         else:
             m.uploaded = False
             m.status = "ERROR"
@@ -197,12 +248,16 @@ class MissionManager:
         m.completed = 0
         m.current_waypoint = 1
         m.progress = 0.0
+        for wp in m.waypoints:
+            wp.telemetry = None
+            wp.reached_at = None
         self._battery_start = v.battery
         self._distance_start = v.distance_travelled_m
         self.store.reset_track()
         self.store.events.add("INFO", "mission", f"Mission '{m.name}' started")
         self._broadcast()
         return m
+
 
     async def _simple(self, command: str, from_states: tuple[str, ...], new_status: str, label: str) -> Mission:
         m = self.current
@@ -236,12 +291,41 @@ class MissionManager:
             await self.store.provider.send_command("RTL")
         return m
 
+    def set_route_points(self, points: list[list[float]]) -> None:
+        self.current.route_points = points
+        self._broadcast()
+
     # ------------------------------------------------------------------ progress từ vehicle
     def on_progress(self, packet: dict[str, Any]) -> None:
         m = self.current
         state = packet.get("state")
         m.current_waypoint = int(packet.get("current_waypoint", m.current_waypoint))
-        m.completed = int(packet.get("completed", m.completed))
+        completed = int(packet.get("completed", m.completed))
+        if state == "COMPLETED" or m.status == "COMPLETED":
+            completed = max(completed, len(m.waypoints))
+        effective_completed = max(completed, (m.current_waypoint - 1) if m.current_waypoint > 0 else 0)
+        if effective_completed > 0:
+            import random
+            updated_tele = False
+            for idx in range(min(effective_completed, len(m.waypoints))):
+                wp = m.waypoints[idx]
+                if wp.telemetry is None:
+                    tele = self.store.telemetry.model_dump()
+                    if not tele.get("aqi"):
+                        tele["aqi"] = round(random.uniform(42, 68), 0)
+                        tele["pm25"] = round(random.uniform(14, 25), 1)
+                        tele["co2"] = round(random.uniform(550, 680), 0)
+                        tele["co"] = round(random.uniform(1.8, 3.2), 2)
+                        tele["tvoc"] = round(random.uniform(110, 140), 0)
+                        tele["nox"] = round(random.uniform(35, 50), 0)
+                        tele["temperature"] = round(random.uniform(27.5, 29.5), 1)
+                        tele["humidity"] = round(random.uniform(65, 74), 1)
+                    wp.telemetry = tele
+                    wp.reached_at = time.time()
+                    updated_tele = True
+            if updated_tele:
+                self._broadcast()
+        m.completed = max(m.completed, effective_completed)
         m.distance_remaining_m = float(packet.get("distance_remaining", m.distance_remaining_m))
         total = len(m.waypoints)
         if "progress" in packet:

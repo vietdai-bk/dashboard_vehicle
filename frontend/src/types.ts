@@ -18,7 +18,10 @@ export interface Waypoint {
   order: number;
   altitude: number;
   name: string;
+  telemetry?: Telemetry;
+  reached_at?: number;
 }
+
 
 export interface VehicleState {
   connected: boolean;
@@ -68,7 +71,9 @@ export interface Mission {
   started_at: number | null;
   ended_at: number | null;
   upload_message: string;
+  route_points?: [number, number][];
 }
+
 
 export interface SavedMission {
   id: string;

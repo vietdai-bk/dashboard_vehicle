@@ -190,3 +190,57 @@ def history() -> dict:
 def clear_history(user: dict = CurrentUser) -> dict:
     mgr().clear_history()
     return ok([])
+
+
+class RouteRequest(BaseModel):
+    vehicle_lat: Optional[float] = None
+    vehicle_lon: Optional[float] = None
+    waypoints: Optional[List[List[float]]] = None
+
+
+@router.post("/route")
+def calculate_route(body: RouteRequest = RouteRequest()) -> dict:
+    from ..mission.routing import calculate_street_route
+    m = mgr().current
+    v = store.vehicle
+    v_lat = body.vehicle_lat if (body.vehicle_lat is not None and body.vehicle_lat != 0) else (v.latitude if v.latitude != 0 else v.home_latitude)
+    v_lon = body.vehicle_lon if (body.vehicle_lon is not None and body.vehicle_lon != 0) else (v.longitude if v.longitude != 0 else v.home_longitude)
+    start = (v_lat, v_lon)
+
+    if body.waypoints is not None:
+        wps = [(p[0], p[1]) for p in body.waypoints]
+    else:
+        wps = [(w.latitude, w.longitude) for w in m.waypoints]
+
+    res = calculate_street_route(start, wps)
+    mgr().set_route_points(res["route"])
+    # Tự động thay thế toàn bộ waypoints thành các điểm cua và đích nằm 100% trên đường đã vạch
+    turn_pts = res.get("turn_points", [])
+    if turn_pts and len(turn_pts) >= 1:
+        try:
+            mgr().apply_turn_waypoints(turn_pts)
+        except Exception as exc:
+            log.exception("Failed to apply turn waypoints: %s", exc)
+    return ok({
+        "route": res["route"],
+        "turn_points": res.get("turn_points", []),
+        "distance_m": res["distance_m"],
+        "duration_s": res["duration_s"],
+        "is_street": res["is_street"],
+        "mission": mgr().current.model_dump(),
+    })
+
+
+@router.delete("/route")
+def clear_route(user: dict = CurrentUser) -> dict:
+    mgr().set_route_points([])
+    return ok(mgr().current)
+
+
+@router.post("/apply-turns")
+def apply_turns(user: dict = CurrentUser) -> dict:
+    try:
+        return ok(mgr().apply_turn_waypoints())
+    except MissionError as exc:
+        raise _guard(exc)
+
