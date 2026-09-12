@@ -30,8 +30,7 @@ const emptyVehicle: VehicleState = {
   distance_travelled_m: 0, home_latitude: 0, home_longitude: 0, last_update: 0, error_message: "",
 };
 const emptyTelemetry: Telemetry = {
-  timestamp: 0, temperature: 0, humidity: 0, pressure: 0, co2: 0, pm25: 0, pm10: 0, light: 0, gas: 0,
-  imu_roll: 0, imu_pitch: 0, imu_yaw: 0,
+  timestamp: 0, temperature: 0, humidity: 0, co2: 0, co: 0, pm25: 0, tvoc: 0, nox: 0, aqi: 0,
 };
 
 let state: AppState = {

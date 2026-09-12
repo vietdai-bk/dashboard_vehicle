@@ -324,15 +324,12 @@ class MockTelemetryProvider(TelemetryProvider):
             "type": "sensor",
             "temperature": round(28.0 + 1.5 * math.sin(t / 60) + random.gauss(0, 0.05), 2),
             "humidity": round(70.0 + 4 * math.sin(t / 90 + 1) + random.gauss(0, 0.2), 1),
-            "pressure": round(1012.0 + 1.2 * math.sin(t / 300) + random.gauss(0, 0.05), 2),
             "co2": round(640 + 60 * math.sin(t / 45) + random.gauss(0, 3), 0),
+            "co": round(max(0, 2.5 + 0.5 * math.sin(t / 80) + random.gauss(0, 0.2)), 2),
             "pm25": round(max(0, 18 + 5 * math.sin(t / 70) + random.gauss(0, 0.5)), 1),
-            "pm10": round(max(0, 27 + 7 * math.sin(t / 70 + 0.4) + random.gauss(0, 0.6)), 1),
-            "light": round(max(0, 820 + 150 * math.sin(t / 120) + random.gauss(0, 10)), 0),
-            "gas": round(max(0, 120 + 15 * math.sin(t / 50) + random.gauss(0, 1)), 1),
-            "imu_roll": round(2.0 * math.sin(t * 1.3) + random.gauss(0, 0.1), 2),
-            "imu_pitch": round(1.5 * math.sin(t * 0.9 + 1) + random.gauss(0, 0.1), 2),
-            "imu_yaw": round(self.heading, 1),
+            "tvoc": round(max(0, 120 + 15 * math.sin(t / 50) + random.gauss(0, 5)), 0),
+            "nox": round(max(0, 45 + 10 * math.sin(t / 60) + random.gauss(0, 2)), 0),
+            "aqi": round(max(0, 55 + 10 * math.sin(t / 100) + random.gauss(0, 1)), 0),
         })
 
     def _emit_mission(self, force: bool = False) -> None:

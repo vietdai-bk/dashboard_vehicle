@@ -46,15 +46,12 @@ export interface Telemetry {
   timestamp: number;
   temperature: number;
   humidity: number;
-  pressure: number;
   co2: number;
+  co: number;
   pm25: number;
-  pm10: number;
-  light: number;
-  gas: number;
-  imu_roll: number;
-  imu_pitch: number;
-  imu_yaw: number;
+  tvoc: number;
+  nox: number;
+  aqi: number;
 }
 
 export interface Mission {
@@ -170,20 +167,17 @@ export interface SensorDef {
   label: string;
   unit: string;
   decimals: number;
-  group: "environment" | "air" | "imu";
+  group: "environment" | "air";
   warn?: [number, number]; // ngoài khoảng => WARN
 }
 
 export const SENSORS: SensorDef[] = [
   { key: "temperature", label: "Temperature", unit: "°C", decimals: 1, group: "environment", warn: [0, 45] },
   { key: "humidity", label: "Humidity", unit: "%", decimals: 0, group: "environment", warn: [20, 95] },
-  { key: "pressure", label: "Pressure", unit: "hPa", decimals: 1, group: "environment", warn: [950, 1050] },
-  { key: "light", label: "Light", unit: "lux", decimals: 0, group: "environment" },
   { key: "co2", label: "CO₂", unit: "ppm", decimals: 0, group: "air", warn: [0, 1000] },
+  { key: "co", label: "CO", unit: "ppm", decimals: 2, group: "air", warn: [0, 9] },
   { key: "pm25", label: "PM2.5", unit: "µg/m³", decimals: 1, group: "air", warn: [0, 35] },
-  { key: "pm10", label: "PM10", unit: "µg/m³", decimals: 1, group: "air", warn: [0, 50] },
-  { key: "gas", label: "Gas (VOC)", unit: "ppb", decimals: 0, group: "air", warn: [0, 400] },
-  { key: "imu_roll", label: "IMU roll", unit: "°", decimals: 1, group: "imu", warn: [-30, 30] },
-  { key: "imu_pitch", label: "IMU pitch", unit: "°", decimals: 1, group: "imu", warn: [-30, 30] },
-  { key: "imu_yaw", label: "IMU yaw", unit: "°", decimals: 0, group: "imu" },
+  { key: "tvoc", label: "TVOC", unit: "ppb", decimals: 0, group: "air", warn: [0, 400] },
+  { key: "nox", label: "NOx", unit: "ppb", decimals: 0, group: "air", warn: [0, 100] },
+  { key: "aqi", label: "AQI", unit: "", decimals: 0, group: "air", warn: [0, 100] },
 ];

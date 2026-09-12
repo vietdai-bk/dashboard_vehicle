@@ -51,15 +51,15 @@ export function TelemetryPage() {
   const charts = useMemo(() => [
     { title: "TEMPERATURE", unit: "°C", series: mk(["temperature"]) },
     { title: "HUMIDITY", unit: "%", series: mk(["humidity"]) },
-    { title: "PRESSURE", unit: "hPa", series: mk(["pressure"]) },
-    { title: "AIR QUALITY", unit: "ppm / µg/m³", series: mk(["co2", "pm25", "pm10"]) },
-    { title: "IMU", unit: "°", series: mk(["imu_roll", "imu_pitch"]) },
-    { title: "LIGHT / GAS", unit: "lux / ppb", series: mk(["light", "gas"]) },
+    { title: "AIR QUALITY INDEX", unit: "", series: mk(["aqi"]) },
+    { title: "GASES (CO₂ / CO)", unit: "ppm", series: mk(["co2", "co"]) },
+    { title: "GASES (TVOC / NOx)", unit: "ppb", series: mk(["tvoc", "nox"]) },
+    { title: "PARTICULATES", unit: "µg/m³", series: mk(["pm25"]) },
     // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [history]);
 
   const groups: { key: SensorDef["group"]; label: string }[] = [
-    { key: "environment", label: "ENVIRONMENT" }, { key: "air", label: "AIR QUALITY" }, { key: "imu", label: "IMU" },
+    { key: "environment", label: "ENVIRONMENT" }, { key: "air", label: "AIR QUALITY" },
   ];
 
   return (

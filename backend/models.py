@@ -67,15 +67,12 @@ class Telemetry(BaseModel):
     timestamp: float = Field(default_factory=time.time)
     temperature: float = 0.0
     humidity: float = 0.0
-    pressure: float = 0.0
     co2: float = 0.0
+    co: float = 0.0
     pm25: float = 0.0
-    pm10: float = 0.0
-    light: float = 0.0
-    gas: float = 0.0
-    imu_roll: float = 0.0
-    imu_pitch: float = 0.0
-    imu_yaw: float = 0.0
+    tvoc: float = 0.0
+    nox: float = 0.0
+    aqi: float = 0.0
 
 
 class Mission(BaseModel):

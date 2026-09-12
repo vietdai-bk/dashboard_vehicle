@@ -35,9 +35,9 @@ _TELEMETRY_RANGES: dict[str, tuple[float, float]] = {
     "battery": (0, 100), "altitude": (-500, 10000), "voltage": (0, 100), "satellites": (0, 64),
 }
 _SENSOR_RANGES: dict[str, tuple[float, float]] = {
-    "temperature": (-60, 150), "humidity": (0, 100), "pressure": (300, 1200), "co2": (0, 50000),
-    "pm25": (0, 5000), "pm10": (0, 5000), "light": (0, 200000), "gas": (0, 100000),
-    "imu_roll": (-180, 180), "imu_pitch": (-180, 180), "imu_yaw": (-360, 360),
+    "temperature": (-60, 150), "humidity": (0, 100), "co2": (0, 50000),
+    "co": (0, 10000), "pm25": (0, 5000), "tvoc": (0, 10000), 
+    "nox": (0, 1000), "aqi": (0, 500)
 }
 
 
