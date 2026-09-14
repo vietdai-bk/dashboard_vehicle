@@ -27,15 +27,115 @@ export function getAqiBadge(aqi: number) {
   return { label: "Nguy hại", bg: "#f3e8ff", fg: "#7e22ce" };
 }
 
+export const VIETNAM_FLAG_SVG = `
+  <svg viewBox="0 0 30 20" class="vn-flag-svg" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
+    <rect width="30" height="20" fill="#da251d"/>
+    <polygon points="15,4 16.545,8.755 21.548,8.755 17.501,11.694 19.047,16.449 15,13.51 10.953,16.449 12.499,11.694 8.452,8.755 13.455,8.755" fill="#ffff00"/>
+  </svg>
+`;
+
+export interface VietnamTerritory {
+  id: string;
+  name: string;
+  sub: string;
+  sovereignty: string;
+  lat: number;
+  lon: number;
+}
+
+export const VIETNAM_TERRITORIES: VietnamTerritory[] = [
+  {
+    id: "hoang_sa",
+    name: "Quần đảo Hoàng Sa",
+    sub: "Huyện Hoàng Sa, TP. Đà Nẵng, Việt Nam",
+    sovereignty: "Chủ quyền thiêng liêng bất khả xâm phạm của Nước CHXHCN Việt Nam",
+    lat: 16.536000,
+    lon: 112.025000,
+  },
+  {
+    id: "truong_sa",
+    name: "Quần đảo Trường Sa",
+    sub: "Huyện Trường Sa, Tỉnh Khánh Hòa, Việt Nam",
+    sovereignty: "Chủ quyền thiêng liêng bất khả xâm phạm của Nước CHXHCN Việt Nam",
+    lat: 9.134717,
+    lon: 112.588130,
+  },
+];
+
+export function isVietnamIslandTerritory(lat: number, lon: number, name?: string): "hoang_sa" | "truong_sa" | null {
+  const n = (name || "").toLowerCase();
+  if (n.includes("hoàng sa") || n.includes("hoang sa") || n.includes("paracel")) return "hoang_sa";
+  if (n.includes("trường sa") || n.includes("truong sa") || n.includes("spratly")) return "truong_sa";
+  // Tọa độ người dùng đưa vào trong ảnh (WP01: 9.134717, 112.588130 / WP02: 16.077153, 108.148301)
+  if (Math.abs(lat - 16.077153) < 0.005 && Math.abs(lon - 108.148301) < 0.005) return "hoang_sa";
+  if (Math.abs(lat - 9.134717) < 0.005 && Math.abs(lon - 112.588130) < 0.005) return "truong_sa";
+  // Vùng Hoàng Sa ngoài khơi
+  if (lat >= 15.0 && lat <= 17.8 && lon >= 110.5 && lon <= 113.8) return "hoang_sa";
+  // Vùng Trường Sa
+  if (lat >= 6.5 && lat <= 12.8 && lon >= 110.0 && lon <= 118.0) return "truong_sa";
+  return null;
+}
+
+export function buildTerritoryIcon(t: VietnamTerritory) {
+  return L.divIcon({
+    className: "vn-flag-marker-wrapper",
+    html: `
+      <div class="vn-flag-container" title="${t.name} - ${t.sovereignty}">
+        <div class="vn-flag-banner">
+          ${VIETNAM_FLAG_SVG}
+          <div class="vn-flag-shimmer"></div>
+        </div>
+        <div class="vn-flag-pole"></div>
+        <div class="vn-flag-base-dot"></div>
+        <div class="vn-flag-caption">
+          <span class="vn-flag-title">${t.name}</span>
+          <span class="vn-flag-sub">VIỆT NAM</span>
+        </div>
+      </div>
+    `,
+    iconSize: [1, 1],
+    iconAnchor: [0, 0],
+    popupAnchor: [0, -45],
+  });
+}
+
+export function buildTerritoryPopupHtml(t: VietnamTerritory): string {
+  return `
+    <div class="vn-territory-popup">
+      <div class="vn-popup-flag">
+        ${VIETNAM_FLAG_SVG}
+      </div>
+      <div class="vn-popup-title">${t.name}</div>
+      <div class="vn-popup-sub">${t.sub}</div>
+      <div class="vn-popup-sovereignty">
+        🇻🇳 ${t.sovereignty}
+      </div>
+      <div class="vn-popup-coords">
+        Tọa độ: ${t.lat.toFixed(6)}, ${t.lon.toFixed(6)}
+      </div>
+    </div>
+  `;
+}
+
 export function buildWaypointPopupHtml(wp: Waypoint, index: number, isPassed: boolean, currentAqi?: number): string {
   const t = wp.telemetry;
   const reachedTime = wp.reached_at
     ? new Date(wp.reached_at * 1000).toLocaleTimeString()
     : null;
 
+  const island = isVietnamIslandTerritory(wp.latitude, wp.longitude, wp.name);
+  const islandName = island === "hoang_sa" ? "Hoàng Sa" : island === "truong_sa" ? "Trường Sa" : null;
+
   const wpTitle = wp.name ? `${wp.name}` : `Waypoint ${index + 1}`;
   const aqi = (t && t.aqi != null) ? t.aqi : (currentAqi && currentAqi > 0 ? currentAqi : 58);
   const badge = getAqiBadge(aqi);
+
+  const sovereigntyBanner = islandName ? `
+    <div style="background:linear-gradient(90deg, #da251d, #b91c1c);color:#fff;padding:6px 10px;border-radius:5px;margin-bottom:8px;font-weight:700;font-size:11.5px;display:flex;align-items:center;gap:6px;box-shadow:0 2px 5px rgba(218,37,29,0.35);">
+      <span style="font-size:15px">🇻🇳</span>
+      <span>Quần đảo ${islandName} — Chủ quyền Việt Nam</span>
+    </div>
+  ` : "";
 
   let bodyHtml = "";
   if (isPassed || t) {
@@ -49,6 +149,7 @@ export function buildWaypointPopupHtml(wp: Waypoint, index: number, isPassed: bo
 
     bodyHtml = `
       <div class="wp-popup-body">
+        ${sovereigntyBanner}
         <div class="wp-popup-aqi" style="background:${badge.bg};color:${badge.fg};display:flex;justify-content:space-between;align-items:center;padding:7px 10px;border-radius:4px;font-weight:700;font-size:12.5px;">
           <span>CHỈ SỐ AQI</span>
           <span>${aqi.toFixed(0)} · ${badge.label}</span>
@@ -92,6 +193,7 @@ export function buildWaypointPopupHtml(wp: Waypoint, index: number, isPassed: bo
   } else {
     bodyHtml = `
       <div class="wp-popup-body" style="padding:10px 12px;font-size:12px;">
+        ${sovereigntyBanner}
         <div style="background:var(--surface-2);border:1px dashed var(--line-strong);padding:8px 10px;border-radius:4px;color:var(--text-2);line-height:1.4;">
           <div style="font-weight:600;color:var(--text);margin-bottom:4px">Điểm waypoint chưa chạy qua</div>
           AQI hiện tại của xe: <b style="color:${badge.fg};background:${badge.bg};padding:1px 5px;border-radius:3px">${aqi.toFixed(0)} (${badge.label})</b>
@@ -107,7 +209,7 @@ export function buildWaypointPopupHtml(wp: Waypoint, index: number, isPassed: bo
     <div class="wp-popup-card">
       <div class="wp-popup-header">
         <div class="title" style="font-weight:700;font-size:13px;color:var(--text);display:flex;align-items:center;gap:6px;">
-          <span>${wpTitle}</span>
+          <span>${islandName ? '🇻🇳 ' : ''}${wpTitle}</span>
           ${isPassed || t ? `<span class="badge ok mono" style="font-size:11px;background:${badge.bg};color:${badge.fg}">AQI ${aqi.toFixed(0)}</span>` : ""}
         </div>
         ${reachedTime ? `<span class="badge ok mono" style="font-size:10px">${reachedTime}</span>` : isPassed ? `<span class="badge ok" style="font-size:10px">ĐÃ QUA</span>` : `<span class="badge neutral" style="font-size:10px">CHƯA TỚI</span>`}
@@ -156,6 +258,7 @@ export function VehicleMap({ mission, onMapClick, onWaypointMoved, selectedWaypo
   const layers = useRef<{
     tiles: L.TileLayer | null; vehicle: L.Marker | null; home: L.Marker | null;
     route: L.Polyline; streetRoute: L.Polyline; track: L.Polyline; wps: Map<number, L.Marker>;
+    territories: Map<string, L.Marker>;
   } | null>(null);
   const markerStateRef = useRef<Map<number, { cls: string; lat: number; lon: number }>>(new Map());
   const [follow, setFollow] = useState(true);
@@ -209,8 +312,55 @@ export function VehicleMap({ mission, onMapClick, onWaypointMoved, selectedWaypo
     const route = L.polyline([], { color: "#1a4d8f", weight: 2, opacity: 0.8, dashArray: "5 5" }).addTo(map);
     const streetRoute = L.polyline([], { color: "#0284c7", weight: 4, opacity: 0.95, lineCap: "round", lineJoin: "round" }).addTo(map);
     const trackLine = L.polyline([], { color: "#157a3a", weight: 3, opacity: 0.95 }).addTo(map);
-    layers.current = { tiles: null, vehicle: null, home: null, route, streetRoute, track: trackLine, wps: new Map() };
+    layers.current = { tiles: null, vehicle: null, home: null, route, streetRoute, track: trackLine, wps: new Map(), territories: new Map() };
     mapRef.current = map;
+
+    // Hàm cập nhật kích thước cờ và nhãn theo tỷ lệ zoom của bản đồ
+    const updateZoomScale = () => {
+      const curMap = mapRef.current;
+      const curContainer = containerRef.current;
+      if (!curMap || !curContainer) return;
+      const zoom = curMap.getZoom();
+      // Zoom 3 (bản đồ toàn quốc): cờ ~26px
+      // Zoom 7 (toàn cảnh Biển Đông): cờ ~52px
+      // Zoom 12 (khu vực quần đảo): cờ ~110px
+      // Zoom 16..18 (chi tiết đảo): cờ ~210..260px
+      const flagW = Math.round(Math.max(26, Math.min(260, 20 * Math.pow(1.18, Math.max(0, zoom - 3)))));
+      const flagH = Math.round((flagW * 2) / 3);
+      const fontSize = Math.max(9, Math.min(16, Math.round(flagW * 0.15)));
+      curContainer.style.setProperty("--vn-flag-w", `${flagW}px`);
+      curContainer.style.setProperty("--vn-flag-h", `${flagH}px`);
+      curContainer.style.setProperty("--vn-flag-font", `${fontSize}px`);
+    };
+
+    map.on("zoom", updateZoomScale);
+    updateZoomScale();
+
+    // Thêm các mốc chủ quyền Quần đảo Hoàng Sa & Trường Sa của Việt Nam
+    VIETNAM_TERRITORIES.forEach((t) => {
+      const m = L.marker([t.lat, t.lon], {
+        icon: buildTerritoryIcon(t),
+        zIndexOffset: 600,
+      }).addTo(map);
+
+      m.bindPopup(buildTerritoryPopupHtml(t), {
+        minWidth: 230,
+        maxWidth: 320,
+      });
+
+      m.bindTooltip(`
+        <div style="font-weight:700;font-size:12px;color:#da251d;text-align:center;line-height:1.35;">
+          <div>🇻🇳 ${t.name}</div>
+          <div style="font-size:10.5px;color:var(--text-2);font-weight:500;">Chủ quyền Việt Nam</div>
+        </div>
+      `, {
+        direction: "top",
+        offset: [0, -45],
+        opacity: 0.95,
+      });
+
+      layers.current?.territories.set(t.id, m);
+    });
 
     map.on("click", (e: L.LeafletMouseEvent) => {
       if (cbRef.current.editable) {
@@ -229,6 +379,8 @@ export function VehicleMap({ mission, onMapClick, onWaypointMoved, selectedWaypo
 
     return () => {
       ro.disconnect();
+      map.off("zoom", updateZoomScale);
+      layers.current?.territories.forEach((tm) => tm.remove());
       map.remove();
       mapRef.current = null;
       layers.current = null;
@@ -301,21 +453,37 @@ export function VehicleMap({ mission, onMapClick, onWaypointMoved, selectedWaypo
       const aqiNum = wp.telemetry?.aqi ?? (isPassed ? (telemetry?.aqi && telemetry.aqi > 0 ? telemetry.aqi : 58) : undefined);
       const badge = getAqiBadge(aqiNum ?? 58);
       const popupHtml = buildWaypointPopupHtml(wp, i, isPassed, telemetry?.aqi);
+
+      const island = isVietnamIslandTerritory(wp.latitude, wp.longitude, wp.name);
+      const islandName = island === "hoang_sa" ? "Quần đảo Hoàng Sa" : island === "truong_sa" ? "Quần đảo Trường Sa" : null;
+      const islandSub = islandName ? `<div style="color:#da251d;font-weight:800;font-size:11px;margin-top:2px;">🇻🇳 ${islandName} (Việt Nam)</div>` : "";
+
       const badgeText = isPassed && aqiNum != null
         ? `WP${String(i + 1).padStart(2, "0")} · AQI ${aqiNum.toFixed(0)}`
         : `WP${String(i + 1).padStart(2, "0")}`;
       const tooltipHtml = isPassed && aqiNum != null
         ? `<div style="font-weight:700;font-size:12px;text-align:center;line-height:1.35;">
-             <div>WP${String(i + 1).padStart(2, "0")}</div>
+             <div>${islandName ? "🇻🇳 " : ""}WP${String(i + 1).padStart(2, "0")}</div>
+             ${islandSub}
              <div style="display:inline-block;color:${badge.fg};background:${badge.bg};padding:1px 6px;border-radius:3px;font-size:11px;margin-top:2px;">AQI: ${aqiNum.toFixed(0)} (${badge.label})</div>
            </div>`
-        : `<div style="font-weight:600;font-size:11.5px;">WP${String(i + 1).padStart(2, "0")}</div>`;
+        : `<div style="font-weight:600;font-size:11.5px;text-align:center;">
+             <div>${islandName ? "🇻🇳 " : ""}WP${String(i + 1).padStart(2, "0")}</div>
+             ${islandSub}
+           </div>`;
 
       const icon = L.divIcon({
         className: "wp-marker-wrapper",
         html: `
-          <div class="wp-pin-container">
-            <div class="wp-name-badge ${cls}">${badgeText}</div>
+          <div class="wp-pin-container ${island ? "has-vn-flag" : ""}">
+            ${island ? `
+              <div class="wp-vn-flag-overlay" title="Chủ quyền Việt Nam - ${islandName}">
+                <div class="wp-vn-mini-flag">
+                  ${VIETNAM_FLAG_SVG}
+                </div>
+              </div>
+            ` : ""}
+            <div class="wp-name-badge ${cls}">${islandName ? "🇻🇳 " : ""}${badgeText}</div>
             <div class="wp-icon ${cls}">${i + 1}</div>
             <div class="wp-pin-tip ${cls}"></div>
           </div>

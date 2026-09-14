@@ -3,7 +3,15 @@ import "leaflet/dist/leaflet.css";
 import { useEffect, useRef, useState } from "react";
 import type { MissionHistoryEntry, Waypoint } from "../types";
 import { MissionStatusBadge } from "./StatusPill";
-import { buildWaypointPopupHtml, getAqiBadge } from "./VehicleMap";
+import {
+  VIETNAM_FLAG_SVG,
+  VIETNAM_TERRITORIES,
+  buildTerritoryIcon,
+  buildTerritoryPopupHtml,
+  buildWaypointPopupHtml,
+  getAqiBadge,
+  isVietnamIslandTerritory,
+} from "./VehicleMap";
 import { IconFit, IconRoute, IconSatellite, IconX } from "./icons";
 
 interface Props {
@@ -98,6 +106,47 @@ export function HistoryMapModal({ entry, onClose }: Props) {
     const tiles = L.tileLayer(tileUrl, { maxZoom: 19 }).addTo(map);
     tilesRef.current = tiles;
 
+    // Cập nhật kích thước cờ theo độ zoom của map
+    const updateZoomScale = () => {
+      const curMap = mapRef.current;
+      const curContainer = containerRef.current;
+      if (!curMap || !curContainer) return;
+      const zoom = curMap.getZoom();
+      const flagW = Math.round(Math.max(26, Math.min(260, 20 * Math.pow(1.18, Math.max(0, zoom - 3)))));
+      const flagH = Math.round((flagW * 2) / 3);
+      const fontSize = Math.max(9, Math.min(16, Math.round(flagW * 0.15)));
+      curContainer.style.setProperty("--vn-flag-w", `${flagW}px`);
+      curContainer.style.setProperty("--vn-flag-h", `${flagH}px`);
+      curContainer.style.setProperty("--vn-flag-font", `${fontSize}px`);
+    };
+
+    map.on("zoom", updateZoomScale);
+    updateZoomScale();
+
+    // Thêm các mốc chủ quyền Quần đảo Hoàng Sa & Trường Sa
+    VIETNAM_TERRITORIES.forEach((t) => {
+      const tm = L.marker([t.lat, t.lon], {
+        icon: buildTerritoryIcon(t),
+        zIndexOffset: 600,
+      }).addTo(map);
+
+      tm.bindPopup(buildTerritoryPopupHtml(t), {
+        minWidth: 230,
+        maxWidth: 320,
+      });
+
+      tm.bindTooltip(`
+        <div style="font-weight:700;font-size:12px;color:#da251d;text-align:center;line-height:1.35;">
+          <div>🇻🇳 ${t.name}</div>
+          <div style="font-size:10.5px;color:var(--text-2);font-weight:500;">Chủ quyền Việt Nam</div>
+        </div>
+      `, {
+        direction: "top",
+        offset: [0, -45],
+        opacity: 0.95,
+      });
+    });
+
     const bounds: L.LatLngExpression[] = [];
 
     // Vẽ vết xe lịch sử (solid green nét liền 3.5px, lineCap round)
@@ -126,6 +175,10 @@ export function HistoryMapModal({ entry, onClose }: Props) {
     // Vẽ các ghim Waypoint lịch sử với thông số đo đạc đầy đủ
     wps.forEach((wp, idx) => {
       bounds.push([wp.latitude, wp.longitude]);
+      const island = isVietnamIslandTerritory(wp.latitude, wp.longitude, wp.name);
+      const islandName = island === "hoang_sa" ? "Quần đảo Hoàng Sa" : island === "truong_sa" ? "Quần đảo Trường Sa" : null;
+      const islandSub = islandName ? `<div style="color:#da251d;font-weight:800;font-size:11px;margin-top:2px;">🇻🇳 ${islandName} (Việt Nam)</div>` : "";
+
       const wpName = wp.name && wp.name.startsWith("WP") ? wp.name : `WP${String(idx + 1).padStart(2, "0")}`;
       const aqiNum = wp.telemetry?.aqi ?? 55;
       const badge = getAqiBadge(aqiNum);
@@ -133,8 +186,15 @@ export function HistoryMapModal({ entry, onClose }: Props) {
       const icon = L.divIcon({
         className: "wp-marker-wrapper",
         html: `
-          <div class="wp-pin-container">
-            <div class="wp-name-badge done">${wpName} · AQI ${aqiNum.toFixed(0)}</div>
+          <div class="wp-pin-container ${island ? "has-vn-flag" : ""}">
+            ${island ? `
+              <div class="wp-vn-flag-overlay" title="Chủ quyền Việt Nam - ${islandName}">
+                <div class="wp-vn-mini-flag">
+                  ${VIETNAM_FLAG_SVG}
+                </div>
+              </div>
+            ` : ""}
+            <div class="wp-name-badge done">${islandName ? "🇻🇳 " : ""}${wpName} · AQI ${aqiNum.toFixed(0)}</div>
             <div class="wp-icon done">${idx + 1}</div>
             <div class="wp-pin-tip done"></div>
           </div>
@@ -155,7 +215,8 @@ export function HistoryMapModal({ entry, onClose }: Props) {
       });
       marker.bindTooltip(`
         <div style="font-weight:700;font-size:12px;text-align:center;line-height:1.35;">
-          <div>${wpName}</div>
+          <div>${islandName ? "🇻🇳 " : ""}${wpName}</div>
+          ${islandSub}
           <div style="display:inline-block;color:${badge.fg};background:${badge.bg};padding:1px 6px;border-radius:3px;font-size:11px;margin-top:2px;">AQI: ${aqiNum.toFixed(0)} (${badge.label})</div>
         </div>
       `, {
@@ -183,6 +244,7 @@ export function HistoryMapModal({ entry, onClose }: Props) {
     return () => {
       window.clearTimeout(t1);
       window.clearTimeout(t2);
+      map.off("zoom", updateZoomScale);
       map.remove();
       mapRef.current = null;
       markersRef.current.clear();
