@@ -83,22 +83,49 @@ class CameraStreamer:
     # ------------------------------------------------------------------ devices
     @staticmethod
     def list_video_devices() -> list:
-        """Liệt kê các cổng video có trên Jetson / Linux (/dev/video*)."""
+        """Liệt kê các cổng video có trên Jetson / Linux (/dev/video*), ưu tiên webcam USB."""
         devices = []
         if sys.platform.startswith("linux"):
+            usb_cams = []
+            other_cams = []
             for path in sorted(glob.glob("/dev/video*")):
+                vname = os.path.basename(path)
                 name = path
-                name_file = f"/sys/class/video4linux/{os.path.basename(path)}/name"
+                name_file = f"/sys/class/video4linux/{vname}/name"
                 if os.path.exists(name_file):
                     try:
                         with open(name_file, encoding="utf-8") as f:
                             name = f.read().strip()
                     except Exception:
                         pass
-                devices.append({"id": path, "name": name, "path": path})
+
+                # Bỏ qua metadata nodes
+                if "metadata" in name.lower():
+                    continue
+
+                # Nhận diện webcam USB qua driver uvcvideo hoặc tên
+                is_usb = False
+                driver_link = f"/sys/class/video4linux/{vname}/device/driver"
+                if os.path.islink(driver_link) and "uvcvideo" in os.path.realpath(driver_link):
+                    is_usb = True
+                elif any(k in name.lower() for k in ("usb", "uvc", "webcam", "camera", "logitech")):
+                    is_usb = True
+
+                item = {
+                    "id": path,
+                    "name": f"{name} ({path})" if path not in name else name,
+                    "path": path,
+                    "is_usb": is_usb,
+                }
+                if is_usb:
+                    usb_cams.append(item)
+                else:
+                    other_cams.append(item)
+
+            devices = usb_cams + other_cams
         else:
-            devices.append({"id": 0, "name": "Camera 0 (Default USB/Webcam)", "path": "0"})
-            devices.append({"id": 1, "name": "Camera 1", "path": "1"})
+            devices.append({"id": 0, "name": "Camera 0 (Default USB/Webcam)", "path": "0", "is_usb": True})
+            devices.append({"id": 1, "name": "Camera 1", "path": "1", "is_usb": False})
         return devices
 
     def set_device(self, device: Union[int, str]) -> None:
@@ -120,7 +147,7 @@ class CameraStreamer:
             self._active = True
             self._thread = threading.Thread(target=self._capture_loop, name="camera-capture", daemon=True)
             self._thread.start()
-            log.info("Camera streamer thread started for device %s", self.device)
+            log.info("[CAMERA] Thread khởi động cho thiết bị %s", self.device)
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -130,33 +157,65 @@ class CameraStreamer:
         if self._thread:
             self._thread.join(timeout=2.0)
             self._thread = None
-        log.info("Camera streamer thread stopped")
+        log.info("[CAMERA] Thread dừng")
 
     def _build_candidate_list(self) -> list:
-        """Lập danh sách các cổng camera khả dĩ theo thứ tự ưu tiên."""
+        """Lập danh sách các cổng camera khả dĩ theo thứ tự ưu tiên (ưu tiên webcam USB thực tế)."""
         candidates = []
 
-        # 1. Cổng được cấu hình
-        candidates.append(self.device)
-        if isinstance(self.device, str) and self.device.isdigit():
-            candidates.append(int(self.device))
-
-        # 2. Các cổng /dev/video* trên Linux (thường /dev/video0, /dev/video1, ...)
+        # 1. Tìm các webcam USB thực tế trên Linux
+        usb_devices = []
+        other_devices = []
         if sys.platform.startswith("linux"):
             for p in sorted(glob.glob("/dev/video*")):
-                if p not in candidates:
-                    candidates.append(p)
-                try:
-                    num = int(p.replace("/dev/video", ""))
-                    if num not in candidates:
-                        candidates.append(num)
-                except Exception:
-                    pass
+                vname = os.path.basename(p)
+                name_file = f"/sys/class/video4linux/{vname}/name"
+                dev_name = ""
+                if os.path.exists(name_file):
+                    try:
+                        with open(name_file, encoding="utf-8") as f:
+                            dev_name = f.read().strip().lower()
+                    except Exception:
+                        pass
 
-        # 3. Các index số fallback
-        for idx in (0, 1, 2, 3):
+                if "metadata" in dev_name:
+                    continue
+
+                driver_link = f"/sys/class/video4linux/{vname}/device/driver"
+                is_usb = False
+                if os.path.islink(driver_link) and "uvcvideo" in os.path.realpath(driver_link):
+                    is_usb = True
+                elif any(k in dev_name for k in ("usb", "uvc", "webcam", "camera", "logitech")):
+                    is_usb = True
+
+                if is_usb:
+                    usb_devices.append(p)
+                else:
+                    other_devices.append(p)
+
+        # Nếu người dùng chọn đích danh cổng không phải mặc định 0, ưu tiên cổng đó
+        if self.device not in (0, "0", "/dev/video0") or not usb_devices:
+            candidates.append(self.device)
+
+        # Ưu tiên các cổng USB webcam thực tế
+        for p in usb_devices:
+            if p not in candidates:
+                candidates.append(p)
+
+        # Cổng cấu hình mặc định nếu chưa có
+        if self.device not in candidates:
+            candidates.append(self.device)
+
+        # Các cổng video khác
+        for p in other_devices:
+            if p not in candidates:
+                candidates.append(p)
+
+        # Index số fallback (1, 0, 2)
+        for idx in (1, 0, 2, 3):
             if idx not in candidates:
                 candidates.append(idx)
+
         return candidates
 
     def _open_capture(self) -> Any:
@@ -166,25 +225,47 @@ class CameraStreamer:
             return None
 
         candidates = self._build_candidate_list()
-        log.info("Searching for video source among candidates: %s", candidates)
+        log.info("[CAMERA] Bắt đầu tìm kiếm nguồn video theo danh sách ưu tiên: %s", candidates)
 
         cap = None
         opened_dev = None
 
         # Thử lần lượt các cổng ứng viên
         for dev in candidates:
-            # Trên Linux: thử V4L2 trước, rồi CAP_ANY
-            backends = [cv2.CAP_V4L2, cv2.CAP_ANY] if (hasattr(cv2, "CAP_V4L2") and sys.platform.startswith("linux")) else [cv2.CAP_ANY]
-            for b in backends:
+            # Chuẩn hóa cổng sang integer index (OpenCV V4L2 bắt buộc dùng số nguyên 0, 1, 2...)
+            dev_idx: Any = dev
+            if isinstance(dev, str):
+                if dev.startswith("/dev/video"):
+                    try:
+                        dev_idx = int(dev.replace("/dev/video", ""))
+                    except ValueError:
+                        pass
+                elif dev.isdigit():
+                    dev_idx = int(dev)
+
+            # Các mục tiêu và backend cần thử
+            attempts = []
+            if isinstance(dev_idx, int):
+                if hasattr(cv2, "CAP_V4L2") and sys.platform.startswith("linux"):
+                    attempts.append((dev_idx, cv2.CAP_V4L2, f"Index {dev_idx} (CAP_V4L2)"))
+                attempts.append((dev_idx, cv2.CAP_ANY, f"Index {dev_idx} (CAP_ANY)"))
+            attempts.append((dev, cv2.CAP_ANY, f"Device {dev} (CAP_ANY)"))
+
+            for target, backend, label in attempts:
+                log.info("[CAMERA] Đang thử mở camera %s với %s...", dev, label)
                 try:
-                    c = cv2.VideoCapture(dev, b)
+                    c = cv2.VideoCapture(target, backend)
                     if not c.isOpened():
                         c.release()
                         continue
 
-                    # Tối ưu hóa trước khi đọc: Đặt định dạng FourCC MJPG và kích thước 640x480
-                    # Rất quan trọng trên Jetson: nếu không đặt MJPG trước khi đọc, webcam USB
-                    # sẽ mặc định dùng YUYV 1080p gây tràn băng thông USB (select timeout / ENOSPC)
+                    # Buffer = 1 để triệt tiêu trễ
+                    try:
+                        c.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    except Exception:
+                        pass
+
+                    # Đặt FourCC 'MJPG' (rất quan trọng trên Jetson USB webcam để không bị nghẽn bus USB)
                     try:
                         fourcc = cv2.VideoWriter_fourcc(*'MJPG')
                         c.set(cv2.CAP_PROP_FOURCC, fourcc)
@@ -195,26 +276,22 @@ class CameraStreamer:
                     c.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
                     c.set(cv2.CAP_PROP_FPS, self.fps)
 
-                    try:
-                        c.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-                    except Exception:
-                        pass
-
-                    # Thử đọc 1 frame để kiểm tra
+                    # Đọc thử 1 frame
                     ret, test_frame = c.read()
                     if not ret or test_frame is None or test_frame.size == 0:
-                        # Thử lại 1 lần sau 0.1s (webcam USB thường cần vài ms để khởi động cảm biến)
-                        time.sleep(0.1)
+                        time.sleep(0.15)
                         ret, test_frame = c.read()
 
                     if ret and test_frame is not None and test_frame.size > 0:
                         cap = c
                         opened_dev = dev
-                        log.info("Camera successfully acquired on device %s (backend=%s, size=%dx%d)", dev, b, test_frame.shape[1], test_frame.shape[0])
+                        log.info("[CAMERA] THÀNH CÔNG: Đã mở camera trên %s (%s, %dx%d)",
+                                 dev, label, test_frame.shape[1], test_frame.shape[0])
                         break
                     c.release()
                 except Exception as exc:
-                    log.debug("Failed opening device %s with backend %s: %s", dev, b, exc)
+                    log.warning("[CAMERA] Thử %s trên %s thất bại: %s", label, dev, exc)
+
             if cap is not None:
                 break
 

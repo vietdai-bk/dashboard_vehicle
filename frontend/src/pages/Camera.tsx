@@ -30,7 +30,7 @@ export function CameraPage() {
   const [jetsonError, setJetsonError] = useState(false);
   const [jetsonRetry, setJetsonRetry] = useState(0);
   const [devices, setDevices] = useState<{ id: string | number; name: string; path: string }[]>([]);
-  const [selectedDevice, setSelectedDevice] = useState<string | number>("/dev/video0");
+  const [selectedDevice, setSelectedDevice] = useState<string | number>("");
   const [cameraStatus, setCameraStatus] = useState<{
     opencv_installed?: boolean;
     configured_device?: string | number;
@@ -62,7 +62,7 @@ export function CameraPage() {
         .then((res) => {
           if (res && res.length > 0) {
             setDevices(res);
-            if (!selectedDevice && res[0]) setSelectedDevice(res[0].id);
+            setSelectedDevice((cur) => cur || (res[0] ? res[0].id : ""));
           }
         })
         .catch(() => {});
