@@ -31,6 +31,16 @@ export function CameraPage() {
   const [jetsonRetry, setJetsonRetry] = useState(0);
   const [devices, setDevices] = useState<{ id: string | number; name: string; path: string }[]>([]);
   const [selectedDevice, setSelectedDevice] = useState<string | number>("/dev/video0");
+  const [cameraStatus, setCameraStatus] = useState<{
+    opencv_installed?: boolean;
+    configured_device?: string | number;
+    opened_device?: string | number | null;
+    active?: boolean;
+    fps?: number;
+    resolution?: string;
+    error?: string;
+    available_devices?: string[];
+  } | null>(null);
 
   // Pop-up Map states
   const [pipVisible, setPipVisible] = useState(true);
@@ -44,7 +54,7 @@ export function CameraPage() {
   const [webcamStream, setWebcamStream] = useState<MediaStream | null>(null);
   const [webcamTrigger, setWebcamTrigger] = useState(0);
 
-  // Fetch available camera devices on Jetson
+  // Fetch available camera devices on Jetson and poll status
   useEffect(() => {
     if (source === "jetson") {
       api.camera
@@ -56,6 +66,27 @@ export function CameraPage() {
           }
         })
         .catch(() => {});
+
+      const fetchStatus = () => {
+        api.camera
+          .status()
+          .then((st: any) => {
+            if (st) {
+              setCameraStatus(st);
+              if (st.opened_device) {
+                setSelectedDevice(st.opened_device);
+              }
+              if (st.active) {
+                setJetsonError(false);
+              }
+            }
+          })
+          .catch(() => {});
+      };
+
+      fetchStatus();
+      const interval = setInterval(fetchStatus, 3000);
+      return () => clearInterval(interval);
     }
   }, [source, jetsonRetry]);
 
@@ -484,6 +515,11 @@ export function CameraPage() {
               <div style={{ fontWeight: 700, fontSize: 16, color: "#f87171", marginBottom: 8 }}>
                 Chưa nhận được luồng Camera từ Jetson
               </div>
+              {cameraStatus?.error && (
+                <div style={{ color: "#fca5a5", fontSize: 13, background: "rgba(239, 68, 68, 0.15)", padding: "8px 14px", borderRadius: 6, marginBottom: 12, border: "1px solid rgba(239, 68, 68, 0.3)", maxWidth: 500, wordBreak: "break-word" }}>
+                  {cameraStatus.error}
+                </div>
+              )}
               <div style={{ color: "var(--text-2)", fontSize: 13, maxWidth: 460, lineHeight: 1.6, marginBottom: 16 }}>
                 1. Đảm bảo webcam USB đã cắm vào cổng USB của Jetson (kiểm tra bằng lệnh <code>ls /dev/video*</code> trên terminal).<br />
                 2. Đảm bảo OpenCV đã được cài đặt trên Jetson (chạy: <code>sudo apt-get install python3-opencv</code> hoặc <code>pip install opencv-python-headless</code>).
@@ -654,6 +690,37 @@ export function CameraPage() {
               Luồng IP
             </button>
           </div>
+
+          {source === "jetson" && (
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 11,
+                padding: "3px 8px",
+                borderRadius: 4,
+                background: "rgba(15, 23, 42, 0.7)",
+                border: `1px solid ${cameraStatus?.active ? "rgba(34, 197, 94, 0.4)" : "rgba(239, 68, 68, 0.4)"}`,
+              }}
+              title={cameraStatus?.error || (cameraStatus?.active ? `Đang phát: ${cameraStatus.opened_device}` : "Đang chờ kết nối camera...")}
+            >
+              <span
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: "50%",
+                  background: cameraStatus?.active ? "#22c55e" : "#ef4444",
+                  boxShadow: cameraStatus?.active ? "0 0 6px #22c55e" : "none",
+                }}
+              />
+              <span style={{ color: cameraStatus?.active ? "#86efac" : "#fca5a5", fontFamily: "monospace" }}>
+                {cameraStatus?.active
+                  ? (cameraStatus.opened_device || "Live")
+                  : (cameraStatus?.error ? "Camera Lỗi" : "Đang kết nối...")}
+              </span>
+            </div>
+          )}
 
           {source === "jetson" && devices.length > 0 && (
             <select

@@ -1,9 +1,10 @@
-"""Jetson / USB Camera Streamer — đọc camera cắm trên Jetson (/dev/video0) và phát MJPEG qua HTTP.
+"""Jetson / USB Camera Streamer — đọc camera cắm trên Jetson (/dev/video*) và phát MJPEG qua HTTP.
 
-Tối ưu cho Jetson Nano / Orin / Raspberry Pi:
-- cv2.CAP_V4L2 với CAP_PROP_BUFFERSIZE = 1 để không bị trễ hình (zero-latency).
-- Chỉ mở camera khi có client xem trên web (on-demand), tự tắt khi không có ai xem để tiết kiệm tài nguyên Jetson.
-- Nếu chưa cài OpenCV, tự sinh frame ảnh hướng dẫn (không làm crash server).
+Tối ưu hóa cho Jetson Nano / Orin / Raspberry Pi:
+- Tự động dò tìm cổng webcam thực tế (/dev/video0, /dev/video1, ...) bằng cách đọc thử frame.
+- Cấu hình FourCC 'MJPG' và CAP_PROP_BUFFERSIZE = 1 để triệt tiêu trễ (zero-latency realtime).
+- Phát luồng MJPEG đa client đồng thời (không bị lỗi 'device or resource busy').
+- Sinh frame thông báo trực quan nếu camera đang bận hoặc chưa sẵn sàng.
 """
 from __future__ import annotations
 
@@ -25,23 +26,37 @@ except ImportError:
     cv2 = None
 
 
+# Ảnh JPEG tối giản 1x1 hợp lệ làm fallback tuyệt đối
+MINIMAL_VALID_JPEG = (
+    b'\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00H\x00H\x00\x00\xff\xdb\x00C\x00'
+    b'\x08\x06\x06\x07\x06\x05\x08\x07\x07\x07\t\t\x08\n\x0c\x14\r\x0c\x0b\x0b\x0c\x19'
+    b'\x12\x13\x0f\x14\x1d\x1a\x1f\x1e\x1d\x1a\x1c\x1c $.\' ",#\x1c\x1c(7),01444\x1f'
+    b"'9=82<.342\xff\xc0\x00\x0b\x08\x00\x01\x00\x01\x01\x01\x11\x00\xff\xc4\x00\x1f"
+    b"\x00\x00\x01\x05\x01\x01\x01\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x01\x02"
+    b"\x03\x04\x05\x06\x07\x08\t\n\x0b\xff\xda\x00\x08\x01\x01\x00\x00?\x00\xbf\x00\xff\xd9"
+)
+
+
 def _generate_fallback_jpeg(message: str, subtext: str = "") -> bytes:
-    """Tạo một frame JPEG đơn giản thông báo lỗi / hướng dẫn khi không mở được camera."""
-    # Nếu có PIL (Pillow) hoặc cv2 thì dùng, nếu không có thì trả về BMP/JPEG tĩnh tối giản
-    try:
-        from PIL import Image, ImageDraw, ImageFont
-        img = Image.new("RGB", (640, 360), color=(18, 24, 38))
-        draw = ImageDraw.Draw(img)
-        draw.rectangle([(20, 20), (620, 340)], outline=(40, 55, 80), width=2)
-        draw.text((40, 140), message, fill=(239, 68, 68))
-        if subtext:
-            draw.text((40, 180), subtext, fill=(148, 163, 184))
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=80)
-        return buf.getvalue()
-    except Exception:
-        # Fallback ảnh JPEG tối giản
-        return b""
+    """Tạo frame JPEG thông báo trực quan khi camera đang kết nối hoặc lỗi."""
+    if cv2 is not None:
+        try:
+            import numpy as np
+            img = np.zeros((360, 640, 3), dtype=np.uint8)
+            img[:] = (20, 16, 12)  # nền xám đậm
+            cv2.rectangle(img, (12, 12), (628, 348), (55, 45, 30), 2)
+            cv2.putText(img, "VEHICLE DASHBOARD - CAMERA", (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 210, 255), 2)
+            cv2.putText(img, message[:48], (30, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (50, 50, 240), 2)
+            if len(message) > 48:
+                cv2.putText(img, message[48:95], (30, 185), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (50, 50, 240), 1)
+            if subtext:
+                cv2.putText(img, subtext, (30, 240), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (160, 160, 160), 1)
+            ret, buf = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
+            if ret:
+                return buf.tobytes()
+        except Exception:
+            pass
+    return MINIMAL_VALID_JPEG
 
 
 class CameraStreamer:
@@ -63,6 +78,7 @@ class CameraStreamer:
         self._stop_event = threading.Event()
         self._active: bool = False
         self._error: str = ""
+        self._opened_device: Optional[Union[int, str]] = None
 
     # ------------------------------------------------------------------ devices
     @staticmethod
@@ -81,7 +97,6 @@ class CameraStreamer:
                         pass
                 devices.append({"id": path, "name": name, "path": path})
         else:
-            # Trên Windows / khác: thử index 0..2
             devices.append({"id": 0, "name": "Camera 0 (Default USB/Webcam)", "path": "0"})
             devices.append({"id": 1, "name": "Camera 1", "path": "1"})
         return devices
@@ -117,59 +132,112 @@ class CameraStreamer:
             self._thread = None
         log.info("Camera streamer thread stopped")
 
+    def _build_candidate_list(self) -> list:
+        """Lập danh sách các cổng camera khả dĩ theo thứ tự ưu tiên."""
+        candidates = []
+
+        # 1. Cổng được cấu hình
+        candidates.append(self.device)
+        if isinstance(self.device, str) and self.device.isdigit():
+            candidates.append(int(self.device))
+
+        # 2. Các cổng /dev/video* trên Linux (thường /dev/video0, /dev/video1, ...)
+        if sys.platform.startswith("linux"):
+            for p in sorted(glob.glob("/dev/video*")):
+                if p not in candidates:
+                    candidates.append(p)
+                try:
+                    num = int(p.replace("/dev/video", ""))
+                    if num not in candidates:
+                        candidates.append(num)
+                except Exception:
+                    pass
+
+        # 3. Các index số fallback
+        for idx in (0, 1, 2, 3):
+            if idx not in candidates:
+                candidates.append(idx)
+        return candidates
+
     def _open_capture(self) -> Any:
         if cv2 is None:
             self._error = "OpenCV (cv2) chưa được cài đặt. Hãy chạy: pip install opencv-python-headless"
             log.error(self._error)
             return None
 
-        dev = self.device
-        # Chuyển chuỗi số thành int
-        if isinstance(dev, str) and dev.isdigit():
-            dev = int(dev)
+        candidates = self._build_candidate_list()
+        log.info("Searching for video source among candidates: %s", candidates)
 
-        # Trên Linux (Jetson / Pi): dùng V4L2 backend
-        backend = cv2.CAP_V4L2 if hasattr(cv2, "CAP_V4L2") and sys.platform.startswith("linux") else cv2.CAP_ANY
-        try:
-            cap = cv2.VideoCapture(dev, backend)
-        except Exception as exc:
-            cap = cv2.VideoCapture(dev)
+        cap = None
+        opened_dev = None
 
-        if not cap.isOpened():
-            # Thử lại với index 0 nếu path string lỗi
-            if isinstance(dev, str) and "/dev/video" in dev:
+        # Thử lần lượt các cổng ứng viên
+        for dev in candidates:
+            # Trên Linux: thử V4L2 trước, rồi CAP_ANY
+            backends = [cv2.CAP_V4L2, cv2.CAP_ANY] if (hasattr(cv2, "CAP_V4L2") and sys.platform.startswith("linux")) else [cv2.CAP_ANY]
+            for b in backends:
                 try:
-                    num = int(dev.replace("/dev/video", ""))
-                    cap = cv2.VideoCapture(num)
-                except Exception:
-                    pass
+                    c = cv2.VideoCapture(dev, b)
+                    if not c.isOpened():
+                        c.release()
+                        continue
 
-        if not cap.isOpened():
-            self._error = f"Không thể mở camera thiết bị: {self.device}. Kiểm tra cáp USB hoặc quyền /dev/video*."
+                    # Tối ưu hóa trước khi đọc: Đặt định dạng FourCC MJPG và kích thước 640x480
+                    # Rất quan trọng trên Jetson: nếu không đặt MJPG trước khi đọc, webcam USB
+                    # sẽ mặc định dùng YUYV 1080p gây tràn băng thông USB (select timeout / ENOSPC)
+                    try:
+                        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+                        c.set(cv2.CAP_PROP_FOURCC, fourcc)
+                    except Exception:
+                        pass
+
+                    c.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+                    c.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+                    c.set(cv2.CAP_PROP_FPS, self.fps)
+
+                    try:
+                        c.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    except Exception:
+                        pass
+
+                    # Thử đọc 1 frame để kiểm tra
+                    ret, test_frame = c.read()
+                    if not ret or test_frame is None or test_frame.size == 0:
+                        # Thử lại 1 lần sau 0.1s (webcam USB thường cần vài ms để khởi động cảm biến)
+                        time.sleep(0.1)
+                        ret, test_frame = c.read()
+
+                    if ret and test_frame is not None and test_frame.size > 0:
+                        cap = c
+                        opened_dev = dev
+                        log.info("Camera successfully acquired on device %s (backend=%s, size=%dx%d)", dev, b, test_frame.shape[1], test_frame.shape[0])
+                        break
+                    c.release()
+                except Exception as exc:
+                    log.debug("Failed opening device %s with backend %s: %s", dev, b, exc)
+            if cap is not None:
+                break
+
+        if cap is None or not cap.isOpened():
+            dev_list = glob.glob("/dev/video*") if sys.platform.startswith("linux") else ["0"]
+            self._error = f"Chưa đọc được hình từ webcam (Cổng khả dụng: {dev_list}). Kiểm tra cáp cắm USB."
             log.warning(self._error)
             return None
 
-        # Tối ưu hóa độ trễ cực thấp (zero latency) cho Jetson
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
-        cap.set(cv2.CAP_PROP_FPS, self.fps)
+        self._opened_device = opened_dev
         self._error = ""
-        log.info("Camera device %s opened successfully (%dx%d)", self.device, self.width, self.height)
         return cap
 
     def _capture_loop(self) -> None:
         cap = None
-        reconnect_delay = 1.0
-
+        reconnect_delay = 2.0
         encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), self.quality] if cv2 is not None else []
 
         while not self._stop_event.is_set():
             if cap is None or not cap.isOpened():
                 cap = self._open_capture()
                 if cap is None or not cap.isOpened():
-                    # Tạo frame thông báo lỗi tạm thời
-                    err_msg = self._error or f"Không tìm thấy camera {self.device}"
+                    err_msg = self._error or f"Không mở được camera {self.device}"
                     placeholder = _generate_fallback_jpeg(err_msg, "Cắm lại webcam USB vào Jetson")
                     with self._condition:
                         self._latest_jpeg = placeholder
@@ -179,14 +247,14 @@ class CameraStreamer:
                     continue
 
             success, frame = cap.read()
-            if not success or frame is None:
-                log.warning("Camera read failed, retrying...")
+            if not success or frame is None or frame.size == 0:
+                log.warning("Camera read empty frame, reconnecting...")
                 try:
                     cap.release()
                 except Exception:
                     pass
                 cap = None
-                self._stop_event.wait(0.5)
+                self._stop_event.wait(1.0)
                 continue
 
             # Nén sang JPEG
@@ -202,7 +270,7 @@ class CameraStreamer:
             except Exception as exc:
                 log.error("JPEG encode error: %s", exc)
 
-            # Khống chế tốc độ frame
+            # Giới hạn tốc độ khung hình
             time.sleep(1.0 / max(1, self.fps))
 
         if cap is not None:
@@ -214,18 +282,20 @@ class CameraStreamer:
     # ------------------------------------------------------------------ streaming
     def get_latest_jpeg(self) -> bytes:
         with self._lock:
-            return self._latest_jpeg
+            if self._latest_jpeg:
+                return self._latest_jpeg
+        # Nếu chưa có frame thực tế, trả về frame khởi động
+        return _generate_fallback_jpeg("Đang khởi động camera Jetson...", "Vui lòng chờ trong giây lát")
 
     def register_client(self) -> None:
         with self._lock:
             self._client_count += 1
-            if self._client_count == 1 and not self._active:
+            if not self._active:
                 self.start()
 
     def unregister_client(self) -> None:
         with self._lock:
             self._client_count = max(0, self._client_count - 1)
-            # Không tắt ngay lập tức, giữ chạy để người dùng đổi tab không bị gián đoạn
 
     async def frame_generator(self) -> AsyncGenerator[bytes, None]:
         """Tạo luồng MJPEG stream cho FastAPI StreamingResponse."""
@@ -233,7 +303,6 @@ class CameraStreamer:
         last_sent_id = -1
         try:
             while True:
-                # Chờ frame mới
                 jpeg_data = b""
                 loop = asyncio.get_running_loop()
 
@@ -241,19 +310,18 @@ class CameraStreamer:
                     with self._condition:
                         if not self._active and self._stop_event.is_set():
                             return b""
-                        # Nếu đã có frame mới hơn frame vừa gửi
                         if self._frame_id != last_sent_id and self._latest_jpeg:
                             return self._latest_jpeg
-                        # Chờ tối đa 0.2s cho frame kế tiếp
-                        self._condition.wait(timeout=0.2)
+                        self._condition.wait(timeout=0.3)
                         return self._latest_jpeg
 
                 jpeg_data = await loop.run_in_executor(None, wait_for_frame)
 
                 if not jpeg_data:
-                    # Nếu chưa có frame thì yield frame rỗng hoặc chờ
-                    await asyncio.sleep(0.05)
-                    continue
+                    jpeg_data = _generate_fallback_jpeg(
+                        self._error or "Đang kết nối camera...",
+                        f"Thiết bị: {self.device}"
+                    )
 
                 last_sent_id = self._frame_id
                 yield (
@@ -269,15 +337,17 @@ class CameraStreamer:
 
     def status(self) -> dict:
         with self._lock:
-            alive = (time.time() - self._last_frame_time) < 3.0 if self._last_frame_time > 0 else False
+            alive = (time.time() - self._last_frame_time) < 4.0 if self._last_frame_time > 0 else False
             return {
                 "opencv_installed": cv2 is not None,
-                "device": self.device,
+                "configured_device": self.device,
+                "opened_device": self._opened_device,
                 "active": self._active and alive,
                 "client_count": self._client_count,
                 "fps": self.fps,
                 "resolution": f"{self.width}x{self.height}",
                 "error": self._error if not alive else "",
+                "available_devices": glob.glob("/dev/video*") if sys.platform.startswith("linux") else ["0"],
             }
 
 
