@@ -74,8 +74,8 @@ tests/node_modules/
 .pnp.js
 
 # Build outputs
-dist/
-# frontend/dist/
+/dist/
+!frontend/dist/
 build/
 
 # Logs
