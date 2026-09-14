@@ -15,7 +15,7 @@ import os
 import sys
 import threading
 import time
-from typing import Any, AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Optional, Union
 
 log = logging.getLogger("camera")
 
@@ -45,7 +45,7 @@ def _generate_fallback_jpeg(message: str, subtext: str = "") -> bytes:
 
 
 class CameraStreamer:
-    def __init__(self, device: int | str = 0, width: int = 640, height: int = 480, fps: int = 25) -> None:
+    def __init__(self, device: Union[int, str] = 0, width: int = 640, height: int = 480, fps: int = 25) -> None:
         self.device = device
         self.width = width
         self.height = height
@@ -87,7 +87,8 @@ class CameraStreamer:
             devices.append({"id": 1, "name": "Camera 1", "path": "1"})
         return devices
 
-    def set_device(self, device: int | str) -> None:
+    def set_device(self, device: Union[int, str]) -> None:
+        need_restart = False
         with self._lock:
             if self.device != device:
                 self.device = device

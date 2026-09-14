@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from fastapi import APIRouter, Response
 from fastapi.responses import StreamingResponse
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api/camera", tags=["camera"])
 
 
 class DeviceSelectRequest(BaseModel):
-    device: str | int
+    device: Union[str, int]
 
 
 @router.get("/stream")

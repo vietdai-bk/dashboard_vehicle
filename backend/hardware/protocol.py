@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 log = logging.getLogger("protocol")
 
@@ -142,7 +142,7 @@ def _parse_nmea(line: str) -> Optional[dict[str, Any]]:
     return None
 
 
-def parse_packet(line: str | bytes) -> Optional[dict[str, Any]]:
+def parse_packet(line: Union[str, bytes]) -> Optional[dict[str, Any]]:
     """Parse một dòng UART. Trả về dict đã validate, hoặc None nếu dòng trống.
     Hỗ trợ JSON chuẩn, JSON không có type, chuỗi key=value, và NMEA GPS.
     Raise ProtocolError khi packet không hợp lệ (caller log và bỏ qua, KHÔNG crash)."""
