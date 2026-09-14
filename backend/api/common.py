@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import HTTPException
 
 
-def ok(data: Any = None) -> dict[str, Any]:
+def ok(data: Any = None) -> dict:
     if hasattr(data, "model_dump"):
         data = data.model_dump()
     elif isinstance(data, list):

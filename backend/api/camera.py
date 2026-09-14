@@ -41,19 +41,19 @@ def snapshot() -> Response:
 
 
 @router.get("/status")
-def camera_status() -> dict[str, Any]:
+def camera_status() -> dict:
     """Kiểm tra trạng thái camera trên Jetson."""
     return ok(camera_streamer.status())
 
 
 @router.get("/devices")
-def list_devices() -> dict[str, Any]:
+def list_devices() -> dict:
     """Liệt kê danh sách các cổng camera (/dev/video*) đang cắm."""
     return ok(camera_streamer.list_video_devices())
 
 
 @router.post("/device")
-def set_device(body: DeviceSelectRequest, user: dict = CurrentUser) -> dict[str, Any]:
+def set_device(body: DeviceSelectRequest, user: dict = CurrentUser) -> dict:
     """Đổi cổng camera đang phát."""
     camera_streamer.set_device(body.device)
     return ok(camera_streamer.status())

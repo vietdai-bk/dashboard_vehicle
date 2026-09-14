@@ -66,12 +66,11 @@ class CameraStreamer:
 
     # ------------------------------------------------------------------ devices
     @staticmethod
-    def list_video_devices() -> list[dict[str, Any]]:
+    def list_video_devices() -> list:
         """Liệt kê các cổng video có trên Jetson / Linux (/dev/video*)."""
         devices = []
         if sys.platform.startswith("linux"):
             for path in sorted(glob.glob("/dev/video*")):
-                # Đọc tên thiết bị nếu có
                 name = path
                 name_file = f"/sys/class/video4linux/{os.path.basename(path)}/name"
                 if os.path.exists(name_file):
@@ -268,7 +267,7 @@ class CameraStreamer:
         finally:
             self.unregister_client()
 
-    def status(self) -> dict[str, Any]:
+    def status(self) -> dict:
         with self._lock:
             alive = (time.time() - self._last_frame_time) < 3.0 if self._last_frame_time > 0 else False
             return {
