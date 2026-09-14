@@ -110,4 +110,17 @@ export const api = {
       put<{ settings: AppSettings; changed: Partial<AppSettings> }>("/api/config", patch),
     system: () => get<SystemInfo>("/api/config/system"),
   },
+  camera: {
+    status: () =>
+      get<{
+        opencv_installed: boolean;
+        device: string | number;
+        active: boolean;
+        fps: number;
+        resolution: string;
+        error: string;
+      }>("/api/camera/status"),
+    devices: () => get<{ id: string | number; name: string; path: string }[]>("/api/camera/devices"),
+    setDevice: (device: string | number) => post<unknown>("/api/camera/device", { device }),
+  },
 };

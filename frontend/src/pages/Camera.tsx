@@ -9,9 +9,10 @@ import {
 } from "../components/icons";
 import { useStore } from "../hooks/useStore";
 import { toast } from "../hooks/useToast";
+import { api } from "../services/api";
 
 type PipSize = "sm" | "md" | "lg";
-type CameraSource = "sim" | "webcam" | "url";
+type CameraSource = "jetson" | "sim" | "webcam" | "url";
 
 export function CameraPage() {
   const vehicle = useStore((s) => s.vehicle);
@@ -20,12 +21,16 @@ export function CameraPage() {
   const settings = useStore((s) => s.settings);
 
   // States
-  const [source, setSource] = useState<CameraSource>("sim");
+  const [source, setSource] = useState<CameraSource>("jetson");
   const [streamUrl, setStreamUrl] = useState<string>(() => {
     return localStorage.getItem("vd_camera_url") || "";
   });
   const [showUrlInput, setShowUrlInput] = useState(false);
   const [inputUrl, setInputUrl] = useState(streamUrl);
+  const [jetsonError, setJetsonError] = useState(false);
+  const [jetsonRetry, setJetsonRetry] = useState(0);
+  const [devices, setDevices] = useState<{ id: string | number; name: string; path: string }[]>([]);
+  const [selectedDevice, setSelectedDevice] = useState<string | number>("/dev/video0");
 
   // Pop-up Map states
   const [pipVisible, setPipVisible] = useState(true);
@@ -38,6 +43,32 @@ export function CameraPage() {
   const streamRef = useRef<MediaStream | null>(null);
   const [webcamStream, setWebcamStream] = useState<MediaStream | null>(null);
   const [webcamTrigger, setWebcamTrigger] = useState(0);
+
+  // Fetch available camera devices on Jetson
+  useEffect(() => {
+    if (source === "jetson") {
+      api.camera
+        .devices()
+        .then((res) => {
+          if (res && res.length > 0) {
+            setDevices(res);
+            if (!selectedDevice && res[0]) setSelectedDevice(res[0].id);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [source, jetsonRetry]);
+
+  const handleSelectDevice = async (dev: string | number) => {
+    setSelectedDevice(dev);
+    try {
+      await api.camera.setDevice(dev);
+      setJetsonRetry((k) => k + 1);
+      toast("info", `Đang chuyển sang cổng ${dev}...`);
+    } catch (err) {
+      toast("error", `Lỗi chọn thiết bị: ${err}`);
+    }
+  };
 
   // Camera stream handling (Webcam)
   useEffect(() => {
@@ -382,6 +413,15 @@ export function CameraPage() {
       dataUrl = canvasRef.current.toDataURL("image/png");
     }
 
+    if (source === "jetson") {
+      const a = document.createElement("a");
+      a.href = `/api/camera/snapshot?t=${Date.now()}`;
+      a.download = `jetson_camera_${Date.now()}.jpg`;
+      a.click();
+      toast("success", "Đã chụp và tải ảnh từ camera Jetson");
+      return;
+    }
+
     if (dataUrl) {
       const a = document.createElement("a");
       a.href = dataUrl;
@@ -414,7 +454,52 @@ export function CameraPage() {
   // The Camera View Element
   const renderCameraView = (isMain: boolean) => (
     <div className={`camera-viewport ${isMain ? "main-view" : "pip-view"}`}>
-      {source === "webcam" ? (
+      {source === "jetson" ? (
+        <div style={{ position: "relative", width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "#050811", overflow: "hidden" }}>
+          <img
+            key={jetsonRetry}
+            src={`/api/camera/stream?t=${jetsonRetry}`}
+            alt="Live Jetson Camera Feed"
+            className="camera-media"
+            style={{ objectFit: "contain", width: "100%", height: "100%" }}
+            onLoad={() => setJetsonError(false)}
+            onError={() => setJetsonError(true)}
+          />
+          {jetsonError && (
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                background: "rgba(11, 17, 32, 0.94)",
+                color: "var(--text)",
+                padding: 24,
+                textAlign: "center",
+                zIndex: 10,
+              }}
+            >
+              <div style={{ fontWeight: 700, fontSize: 16, color: "#f87171", marginBottom: 8 }}>
+                Chưa nhận được luồng Camera từ Jetson
+              </div>
+              <div style={{ color: "var(--text-2)", fontSize: 13, maxWidth: 460, lineHeight: 1.6, marginBottom: 16 }}>
+                1. Đảm bảo webcam USB đã cắm vào cổng USB của Jetson (kiểm tra bằng lệnh <code>ls /dev/video*</code> trên terminal).<br />
+                2. Đảm bảo OpenCV đã được cài đặt trên Jetson (chạy: <code>sudo apt-get install python3-opencv</code> hoặc <code>pip install opencv-python-headless</code>).
+              </div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
+                <button className="btn sm primary" onClick={() => setJetsonRetry((k) => k + 1)}>
+                  Thử kết nối lại
+                </button>
+                <button className="btn sm" onClick={() => setSource("sim")}>
+                  Xem tạm Giả lập
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : source === "webcam" ? (
         <video
           ref={(el) => {
             videoRef.current = el;
@@ -529,6 +614,16 @@ export function CameraPage() {
         <div className="camera-actions-group">
           <div className="btn-group">
             <button
+              className={`btn sm ${source === "jetson" ? "primary active" : ""}`}
+              onClick={() => {
+                setSource("jetson");
+                setJetsonRetry((k) => k + 1);
+              }}
+              title="Nhận luồng video từ webcam USB cắm trực tiếp trên Jetson (/api/camera/stream)"
+            >
+              Webcam Jetson
+            </button>
+            <button
               className={`btn sm ${source === "sim" ? "primary active" : ""}`}
               onClick={() => setSource("sim")}
               title="Chế độ mô phỏng xe chạy Car SIM trực quan"
@@ -544,9 +639,9 @@ export function CameraPage() {
                   setSource("webcam");
                 }
               }}
-              title="Bật Webcam máy tính laptop / Camera USB để test thực tế"
+              title="Bật Webcam máy tính laptop đang xem để test thử"
             >
-              Webcam
+              Webcam Laptop
             </button>
             <button
               className={`btn sm ${source === "url" ? "primary active" : ""}`}
@@ -559,6 +654,22 @@ export function CameraPage() {
               Luồng IP
             </button>
           </div>
+
+          {source === "jetson" && devices.length > 0 && (
+            <select
+              className="select sm mono"
+              value={selectedDevice}
+              onChange={(e) => void handleSelectDevice(e.target.value)}
+              title="Cổng camera USB trên Jetson (/dev/video*)"
+              style={{ fontSize: 11, maxWidth: 140, height: 28 }}
+            >
+              {devices.map((d) => (
+                <option key={String(d.id)} value={d.id}>
+                  {d.name.length > 18 ? d.name.slice(0, 18) + "…" : d.name}
+                </option>
+              ))}
+            </select>
+          )}
 
           <button
             className={`btn sm ${showUrlInput ? "active" : ""}`}

@@ -30,12 +30,13 @@ from fastapi.exceptions import RequestValidationError  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
-from backend.api import auth, config, mission, telemetry, vehicle  # noqa: E402
+from backend.api import auth, camera, config, mission, telemetry, vehicle  # noqa: E402
 from backend.api.vehicle import build_provider  # noqa: E402
 from backend.config import FRONTEND_DIST, VERSION, settings  # noqa: E402
 from backend.core.auth import auth_manager  # noqa: E402
 from backend.core.state import store  # noqa: E402
 from backend.core.websocket import manager as ws_manager  # noqa: E402
+from backend.hardware.camera import camera_streamer  # noqa: E402
 from backend.mission.manager import MissionManager  # noqa: E402
 
 logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO),
@@ -53,11 +54,12 @@ async def lifespan(app: FastAPI):
         log.error("Data source '%s' failed to start: %s", settings.data_source, exc)
     log.info("Vehicle dashboard v%s ready on http://%s:%d", VERSION, settings.server_host, settings.server_port)
     yield
+    camera_streamer.stop()
     await store.shutdown()
 
 
 app = FastAPI(title="Vehicle Dashboard", version=VERSION, lifespan=lifespan)
-for r in (auth.router, vehicle.router, mission.router, telemetry.router, config.router):
+for r in (auth.router, vehicle.router, mission.router, telemetry.router, config.router, camera.router):
     app.include_router(r)
 
 
