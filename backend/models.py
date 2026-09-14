@@ -27,6 +27,7 @@ class Waypoint(BaseModel):
     name: str = ""
     telemetry: Optional[Dict[str, Any]] = None
     reached_at: Optional[float] = None
+    is_turn: bool = False
 
 
 class WaypointCreate(BaseModel):
@@ -81,6 +82,7 @@ class Mission(BaseModel):
     id: str = ""
     name: str = "Untitled mission"
     waypoints: List[Waypoint] = []
+    user_waypoints: List[Waypoint] = []       # Danh sách các waypoint do người dùng trực tiếp chọn
     status: MissionStatus = "EMPTY"
     uploaded: bool = False
     current_waypoint: int = 0
@@ -98,6 +100,7 @@ class SavedMission(BaseModel):
     id: str
     name: str
     waypoints: List[Waypoint]
+    user_waypoints: List[Waypoint] = []
     created_at: float
     updated_at: float
 
@@ -116,6 +119,9 @@ class MissionHistoryEntry(BaseModel):
     battery_start: float
     battery_end: float
     track: List[List[float]] = []           # [[lat, lon], ...] đã giảm mẫu
+    waypoints: List[Waypoint] = []          # danh sách waypoints của chặng
+    user_waypoints: List[Waypoint] = []     # danh sách waypoints do người dùng chọn
+    route_points: List[List[float]] = []    # tọa độ tuyến đường phố đã vạch
 
 
 class EventEntry(BaseModel):

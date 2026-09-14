@@ -1,6 +1,6 @@
 // Store ngoài React (useSyncExternalStore). Mọi dữ liệu realtime đi qua đây.
 import type {
-  Alert, AppSettings, ConnectionInfo, EventEntry, Mission, MissionHistoryEntry, Telemetry, VehicleState, WsStatus,
+  Alert, AppSettings, ConnectionInfo, EventEntry, Mission, MissionHistoryEntry, Telemetry, VehicleState, Waypoint, WsStatus,
 } from "../types";
 
 export interface AppState {
@@ -11,6 +11,7 @@ export interface AppState {
   wsStatus: WsStatus;
   track: [number, number][];
   historyTrack: [number, number][] | null; // track của một mission trong lịch sử để xem lại trên map
+  historyWaypoints: Waypoint[] | null;     // waypoints của mission lịch sử để xem lại trên map
   sensorHistory: Telemetry[];
   alerts: Alert[];
   events: EventEntry[];
@@ -41,6 +42,7 @@ let state: AppState = {
   wsStatus: "connecting",
   track: [],
   historyTrack: null,
+  historyWaypoints: null,
   sensorHistory: [],
   alerts: [],
   events: [],
@@ -76,11 +78,11 @@ export const actions = {
       if (v.latitude !== 0 || v.longitude !== 0) {
         const pt: [number, number] = [v.latitude, v.longitude];
         const last = track[track.length - 1];
-        if (!last || distM(last, pt) >= 0.5) {
+        if (!last || distM(last, pt) >= 0.3) {
           track = track.length >= MAX_TRACK_POINTS ? [...track.slice(-MAX_TRACK_POINTS + 1), pt] : [...track, pt];
         }
       }
-      const running = v.state === "RUNNING";
+      const running = v.state === "RUNNING" || v.speed > 0.1;
       const ss = running
         ? { max: Math.max(s.speedStats.max, v.speed), sum: s.speedStats.sum + v.speed, n: s.speedStats.n + 1 }
         : s.speedStats;

@@ -43,7 +43,13 @@ def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 class VehicleStateStore:
     def __init__(self) -> None:
-        self.vehicle = VehicleState(source=settings.data_source)
+        self.vehicle = VehicleState(
+            source=settings.data_source,
+            latitude=settings.home_lat,
+            longitude=settings.home_lon,
+            home_latitude=settings.home_lat,
+            home_longitude=settings.home_lon,
+        )
         self.telemetry = Telemetry()
         self.telemetry_history: deque[Telemetry] = deque(maxlen=settings.telemetry_history_size)
         self.track: deque[list[float]] = deque(maxlen=settings.track_max_points)
@@ -111,7 +117,7 @@ class VehicleStateStore:
 
     # ------------------------------------------------------------------ packets
     def apply_packet(self, packet: dict[str, Any]) -> None:
-        """Điểm vào duy nhất cho mọi dữ liệu từ vehicle."""
+        """Điểm vào duy nhất cho mọi dữ liệu từ vehicle. Nhận từ STM32 và cập nhật ngay lên web."""
         ptype = packet.get("type")
         now = time.time()
         self.vehicle.last_update = now
@@ -119,13 +125,21 @@ class VehicleStateStore:
             self.vehicle.connected = True
             self._push_connection()
         try:
-            if ptype == "telemetry":
+            # 1. Cập nhật thông số di chuyển / GPS nếu có
+            has_tele = ptype == "telemetry" or any(k in packet for k in ("lat", "latitude", "lon", "longitude", "speed", "heading", "state"))
+            if has_tele:
                 self._apply_telemetry(packet)
-            elif ptype == "sensor":
+
+            # 2. Cập nhật thông số cảm biến môi trường nếu có
+            has_sensor = ptype == "sensor" or any(k in packet for k in ("temperature", "humidity", "co2", "aqi", "pm25", "co", "tvoc", "nox"))
+            if has_sensor:
                 self._apply_sensor(packet)
-            elif ptype == "mission" and self.mission is not None:
+
+            # 3. Cập nhật tiến độ mission nếu có
+            if self.mission is not None and (ptype == "mission" or any(k in packet for k in ("current_waypoint", "completed", "distance_remaining"))):
                 self.mission.on_progress(packet)
-            elif ptype == "log":
+
+            if ptype == "log":
                 self.events.add(str(packet.get("level", "INFO")), "vehicle", str(packet.get("message", "")))
             elif ptype == "ack":
                 log.debug("ACK %s ok=%s %s", packet.get("command"), packet.get("ok"), packet.get("message"))
@@ -135,29 +149,45 @@ class VehicleStateStore:
     def _apply_telemetry(self, p: dict[str, Any]) -> None:
         v = self.vehicle
         prev_state = v.state
-        mapping = {"lat": "latitude", "lon": "longitude", "heading": "heading", "speed": "speed",
-                   "battery": "battery", "voltage": "voltage", "altitude": "altitude",
-                   "satellites": "satellites", "current_waypoint": "current_waypoint",
-                   "total_waypoints": "total_waypoints", "distance_travelled": "distance_travelled_m",
-                   "home_lat": "home_latitude", "home_lon": "home_longitude"}
+        mapping = {
+            "lat": "latitude", "latitude": "latitude",
+            "lon": "longitude", "longitude": "longitude", "lng": "longitude",
+            "heading": "heading", "speed": "speed",
+            "battery": "battery", "voltage": "voltage", "altitude": "altitude",
+            "satellites": "satellites", "current_waypoint": "current_waypoint",
+            "total_waypoints": "total_waypoints", "distance_travelled": "distance_travelled_m",
+            "home_lat": "home_latitude", "home_lon": "home_longitude",
+        }
         for src, dst in mapping.items():
-            if src in p:
+            if src in p and p[src] is not None:
                 setattr(v, dst, p[src])
         if "armed" in p:
             if time.time() - self._last_ack_time > 0.4 or bool(p["armed"]) == v.armed:
                 v.armed = bool(p["armed"])
-        if "state" in p and p["state"] in VALID_TRANSITIONS:
-            new_state = p["state"]
-            if time.time() - self._last_ack_time <= 0.4 and self._last_ack_state is not None and new_state != self._last_ack_state:
-                pass
+        if "state" in p:
+            raw_state = str(p["state"]).upper()
+            if raw_state in VALID_TRANSITIONS:
+                new_state = raw_state
+            elif raw_state in ("AUTO", "DRIVING", "MOVING", "MANUAL"):
+                new_state = "RUNNING"
             else:
-                if new_state != prev_state:
-                    if new_state not in VALID_TRANSITIONS[prev_state]:
-                        log.warning("Vehicle reported unexpected transition %s -> %s", prev_state, new_state)
-                    self.events.add("INFO", "vehicle", f"Vehicle state {prev_state} → {new_state}")
+                new_state = raw_state
+            if new_state != prev_state:
+                if prev_state in VALID_TRANSITIONS and new_state not in VALID_TRANSITIONS[prev_state]:
+                    log.warning("Vehicle reported transition %s -> %s", prev_state, new_state)
+                self.events.add("INFO", "vehicle", f"Vehicle state {prev_state} → {new_state}")
                 v.state = new_state
+        elif v.state == "DISARMED" and v.speed > 0.3:
+            v.state = "RUNNING"
+            v.armed = True
+
         v.error_message = "" if v.state != "ERROR" else v.error_message or "Vehicle reported ERROR"
         self._append_track(v.latitude, v.longitude)
+
+        # Kiểm tra khoảng cách xe tới waypoint hiện tại nếu đang trong mission
+        if self.mission is not None and self.mission.current.status == "RUNNING" and v.latitude != 0 and v.longitude != 0:
+            self.mission.check_vehicle_position(v.latitude, v.longitude)
+
         self._evaluate_alerts()
         self.broadcast_vehicle()
 
@@ -223,20 +253,31 @@ class VehicleStateStore:
             self.alerts.clear("vehicle_error")
 
     async def _watchdog_loop(self) -> None:
-        """Phát hiện mất link: không có packet trong uart_timeout_s."""
+        """Kiểm tra trạng thái kết nối phần cứng."""
         while True:
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1.0)
             if self.provider is None:
                 continue
-            timeout = settings.uart_timeout_s
-            alive = (time.time() - self.vehicle.last_update) < timeout
-            if self.vehicle.connected and not alive:
-                self.vehicle.connected = False
-                self.alerts.raise_alert("link", "critical", f"Link lost: no telemetry for {timeout:.0f}s")
-                self._push_connection()
-                self.broadcast_vehicle()
-            elif alive and self.vehicle.connected:
-                self.alerts.clear("link")
+            if self.provider.kind == "uart":
+                # Đối với UART: cổng mở là sẵn sàng chờ STM32 gửi dữ liệu
+                is_port_open = self.provider.connected
+                if not is_port_open and self.vehicle.connected:
+                    self.vehicle.connected = False
+                    self.alerts.raise_alert("link", "critical", "UART port closed / device disconnected")
+                    self._push_connection()
+                    self.broadcast_vehicle()
+                elif is_port_open:
+                    self.alerts.clear("link")
+            else:
+                timeout = settings.uart_timeout_s
+                alive = (time.time() - self.vehicle.last_update) < timeout
+                if self.vehicle.connected and not alive:
+                    self.vehicle.connected = False
+                    self.alerts.raise_alert("link", "critical", f"Link lost: no telemetry for {timeout:.0f}s")
+                    self._push_connection()
+                    self.broadcast_vehicle()
+                elif alive and self.vehicle.connected:
+                    self.alerts.clear("link")
 
     # ------------------------------------------------------------------ broadcast
     def broadcast_vehicle(self) -> None:

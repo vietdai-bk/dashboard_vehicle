@@ -183,6 +183,7 @@ def delete_saved(mission_id: str, user: dict = CurrentUser) -> dict:
 
 @router.get("/history")
 def history() -> dict:
+    mgr().reload_history()
     return ok(list(reversed(mgr().history)))
 
 
@@ -203,18 +204,25 @@ def calculate_route(body: RouteRequest = RouteRequest()) -> dict:
     from ..mission.routing import calculate_street_route
     m = mgr().current
     v = store.vehicle
-    v_lat = body.vehicle_lat if (body.vehicle_lat is not None and body.vehicle_lat != 0) else (v.latitude if v.latitude != 0 else v.home_latitude)
-    v_lon = body.vehicle_lon if (body.vehicle_lon is not None and body.vehicle_lon != 0) else (v.longitude if v.longitude != 0 else v.home_longitude)
+    v_lat = body.vehicle_lat if (body.vehicle_lat is not None and body.vehicle_lat != 0) else (v.latitude if v.latitude != 0 else (v.home_latitude if v.home_latitude != 0 else settings.home_lat))
+    v_lon = body.vehicle_lon if (body.vehicle_lon is not None and body.vehicle_lon != 0) else (v.longitude if v.longitude != 0 else (v.home_longitude if v.home_longitude != 0 else settings.home_lon))
     start = (v_lat, v_lon)
 
     if body.waypoints is not None:
         wps = [(p[0], p[1]) for p in body.waypoints]
     else:
-        wps = [(w.latitude, w.longitude) for w in m.waypoints]
+        user_wps = m.user_waypoints if m.user_waypoints else [
+            w for w in m.waypoints if not w.is_turn and w.name != "Xuất phát"
+        ]
+        wps = [(w.latitude, w.longitude) for w in user_wps]
 
-    res = calculate_street_route(start, wps)
+    targets = m.user_waypoints if m.user_waypoints else [
+        w for w in m.waypoints if not w.is_turn and w.name != "Xuất phát"
+    ]
+
+    res = calculate_street_route(start, wps, target_waypoints=targets)
     mgr().set_route_points(res["route"])
-    # Tự động thay thế toàn bộ waypoints thành các điểm cua và đích nằm 100% trên đường đã vạch
+    # Tự động thay thế toàn bộ waypoints thành các điểm cua và đích nằm 100% trên đường đã vạch để xe rẽ
     turn_pts = res.get("turn_points", [])
     if turn_pts and len(turn_pts) >= 1:
         try:
@@ -233,8 +241,7 @@ def calculate_route(body: RouteRequest = RouteRequest()) -> dict:
 
 @router.delete("/route")
 def clear_route(user: dict = CurrentUser) -> dict:
-    mgr().set_route_points([])
-    return ok(mgr().current)
+    return ok(mgr().clear_route())
 
 
 @router.post("/apply-turns")

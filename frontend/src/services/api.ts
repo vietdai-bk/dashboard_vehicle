@@ -58,6 +58,7 @@ export const api = {
   vehicle: {
     state: () => get<VehicleState>("/api/vehicle/state"),
     connection: () => get<ConnectionInfo>("/api/vehicle/connection"),
+    ports: () => get<{ port: string; description: string; hwid: string }[]>("/api/vehicle/ports"),
     connect: (source?: string, port?: string, baudrate?: number) =>
       post<ConnectionInfo>("/api/vehicle/connect", { source, port, baudrate }),
     disconnect: () => post<ConnectionInfo>("/api/vehicle/disconnect"),

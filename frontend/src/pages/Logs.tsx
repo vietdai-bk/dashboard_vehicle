@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { describeError } from "../components/ControlPanel";
+import { MissionHistory } from "../components/MissionHistory";
 import { useStore } from "../hooks/useStore";
 import { toast } from "../hooks/useToast";
 import { api } from "../services/api";
@@ -8,6 +10,7 @@ import { setState } from "../stores/store";
 const fmt = (t: number) => new Date(t * 1000).toLocaleTimeString([], { hour12: false });
 
 export function LogsPage() {
+  const navigate = useNavigate();
   const events = useStore((s) => s.events);
   const alerts = useStore((s) => s.alerts);
   const [level, setLevel] = useState("ALL");
@@ -26,6 +29,9 @@ export function LogsPage() {
 
   return (
     <div className="page stack">
+      {/* Lịch sử các chặng waypoint và track xe đã chạy */}
+      <MissionHistory onSelectOnMap={() => navigate("/maps")} />
+
       <div className="card">
         <div className="card-h">ALERTS <span className="muted">{activeAlerts.length} active</span></div>
         <div className="card-b stack" style={{ gap: 6 }}>

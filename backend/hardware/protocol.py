@@ -55,23 +55,146 @@ def _check_ranges(packet: dict[str, Any], ranges: dict[str, tuple[float, float]]
                 raise ProtocolError(f"{key}={value} ngoài dải [{lo}, {hi}]")
 
 
+def _normalize_keys(packet: dict[str, Any]) -> dict[str, Any]:
+    norm = {}
+    key_map = {
+        "latitude": "lat", "LAT": "lat", "Lat": "lat",
+        "longitude": "lon", "lng": "lon", "LON": "lon", "Lon": "lon", "Lng": "lon",
+        "speed": "speed", "spd": "speed", "SPEED": "speed", "Spd": "speed",
+        "heading": "heading", "hdg": "heading", "HEADING": "heading", "Hdg": "heading",
+        "battery": "battery", "bat": "battery", "BAT": "battery", "Bat": "battery",
+        "altitude": "altitude", "alt": "altitude", "ALT": "altitude",
+        "satellites": "satellites", "sat": "satellites", "SATS": "satellites",
+        "temperature": "temperature", "temp": "temperature", "TEMP": "temperature",
+        "humidity": "humidity", "hum": "humidity", "HUM": "humidity",
+        "aqi": "aqi", "AQI": "aqi",
+        "pm25": "pm25", "PM25": "pm25", "PM2.5": "pm25",
+        "co2": "co2", "CO2": "co2",
+        "co": "co", "CO": "co",
+        "tvoc": "tvoc", "TVOC": "tvoc",
+        "nox": "nox", "NOX": "nox",
+        "state": "state", "STATE": "state",
+        "armed": "armed", "ARMED": "armed",
+    }
+    for k, v in packet.items():
+        dst = key_map.get(k, k.lower() if isinstance(k, str) else k)
+        norm[dst] = v
+    return norm
+
+
+def _parse_key_value(line: str) -> Optional[dict[str, Any]]:
+    """Parse chuỗi dạng LAT=16.05,LON=108.20,SPD=12 hoặc LAT:16.05 LON:108.20."""
+    import re
+    pairs = re.findall(r'([A-Za-z0-9_.]+)\s*[:=]\s*([^\s,;]+)', line)
+    if not pairs:
+        return None
+    d: dict[str, Any] = {}
+    for k, v in pairs:
+        try:
+            if "." in v:
+                d[k] = float(v)
+            else:
+                d[k] = int(v)
+        except ValueError:
+            v_lower = v.lower()
+            if v_lower in ("true", "yes", "on"):
+                d[k] = True
+            elif v_lower in ("false", "no", "off"):
+                d[k] = False
+            else:
+                d[k] = v
+    return d
+
+
+def _parse_nmea(line: str) -> Optional[dict[str, Any]]:
+    parts = line.split(",")
+    header = parts[0].strip()
+    if header in ("$GPRMC", "$GNRMC") and len(parts) >= 9:
+        if parts[2] == "A":  # GPS fix OK
+            def to_deg(raw: str, hemi: str) -> float:
+                if not raw or "." not in raw:
+                    return 0.0
+                dot = raw.find(".")
+                deg = float(raw[:dot-2]) if dot >= 2 else 0.0
+                mins = float(raw[dot-2:]) if dot >= 2 else float(raw)
+                val = deg + mins / 60.0
+                return -val if hemi in ("S", "W") else val
+            lat = to_deg(parts[3], parts[4])
+            lon = to_deg(parts[5], parts[6])
+            spd_knots = float(parts[7]) if parts[7] else 0.0
+            hdg = float(parts[8]) if parts[8] else 0.0
+            return {"type": "telemetry", "lat": lat, "lon": lon, "speed": round(spd_knots * 1.852, 1), "heading": hdg, "state": "RUNNING"}
+    elif header in ("$GPGGA", "$GNGGA") and len(parts) >= 10:
+        if parts[6] in ("1", "2"):
+            def to_deg(raw: str, hemi: str) -> float:
+                if not raw or "." not in raw:
+                    return 0.0
+                dot = raw.find(".")
+                deg = float(raw[:dot-2]) if dot >= 2 else 0.0
+                mins = float(raw[dot-2:]) if dot >= 2 else float(raw)
+                val = deg + mins / 60.0
+                return -val if hemi in ("S", "W") else val
+            lat = to_deg(parts[2], parts[3])
+            lon = to_deg(parts[4], parts[5])
+            alt = float(parts[9]) if parts[9] else 0.0
+            sats = int(parts[7]) if parts[7] else 0
+            return {"type": "telemetry", "lat": lat, "lon": lon, "altitude": alt, "satellites": sats, "state": "RUNNING"}
+    return None
+
+
 def parse_packet(line: str | bytes) -> Optional[dict[str, Any]]:
     """Parse một dòng UART. Trả về dict đã validate, hoặc None nếu dòng trống.
+    Hỗ trợ JSON chuẩn, JSON không có type, chuỗi key=value, và NMEA GPS.
     Raise ProtocolError khi packet không hợp lệ (caller log và bỏ qua, KHÔNG crash)."""
     if isinstance(line, bytes):
         line = line.decode("utf-8", errors="replace")
     line = line.strip()
     if not line:
         return None
-    try:
-        packet = json.loads(line)
-    except json.JSONDecodeError as exc:
-        raise ProtocolError(f"JSON không hợp lệ: {line[:80]!r}") from exc
-    if not isinstance(packet, dict):
-        raise ProtocolError("Packet phải là JSON object")
+
+    # 1. Thử parse NMEA nếu là câu GPS
+    if line.startswith("$"):
+        nmea = _parse_nmea(line)
+        if nmea:
+            return nmea
+
+    # 2. Thử parse JSON (tìm cặp { và } để tránh nhiễu byte đầu/cuối đường truyền UART)
+    packet: Optional[dict[str, Any]] = None
+    start_brace = line.find("{")
+    end_brace = line.rfind("}")
+    if start_brace != -1 and end_brace > start_brace:
+        json_str = line[start_brace:end_brace + 1]
+        try:
+            raw_obj = json.loads(json_str)
+            if isinstance(raw_obj, dict):
+                packet = _normalize_keys(raw_obj)
+        except json.JSONDecodeError:
+            pass
+
+    # 3. Fallback: thử parse dạng key=value hoặc key:value
+    if packet is None:
+        kv = _parse_key_value(line)
+        if kv and len(kv) >= 2:
+            packet = _normalize_keys(kv)
+
+    if packet is None:
+        raise ProtocolError(f"Dữ liệu không nhận diện được: {line[:80]!r}")
+
+    # 4. Tự suy diễn type nếu thiếu
     ptype = packet.get("type")
-    if ptype not in PACKET_TYPES:
-        raise ProtocolError(f"type không hỗ trợ: {ptype!r}")
+    if not ptype:
+        if "lat" in packet or "lon" in packet or "speed" in packet or "heading" in packet:
+            ptype = "telemetry"
+        elif any(k in packet for k in ("temperature", "humidity", "co2", "aqi", "pm25", "tvoc", "nox")):
+            ptype = "sensor"
+        elif "command" in packet:
+            ptype = "ack"
+        elif "current_waypoint" in packet:
+            ptype = "mission"
+        else:
+            ptype = "telemetry"
+        packet["type"] = ptype
+
     if ptype == "telemetry":
         _check_ranges(packet, _TELEMETRY_RANGES)
     elif ptype == "sensor":
@@ -82,7 +205,10 @@ def parse_packet(line: str | bytes) -> Optional[dict[str, Any]]:
     elif ptype == "mission":
         for key in ("current_waypoint", "total"):
             if key in packet and not isinstance(packet[key], int):
-                raise ProtocolError(f"mission.{key} phải là int")
+                try:
+                    packet[key] = int(packet[key])
+                except (ValueError, TypeError):
+                    raise ProtocolError(f"mission.{key} phải là int")
     return packet
 
 

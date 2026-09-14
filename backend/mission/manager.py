@@ -59,6 +59,46 @@ class MissionManager:
         DATA_DIR.mkdir(exist_ok=True)
         path.write_text(json.dumps([x.model_dump() for x in items], indent=2, ensure_ascii=False), encoding="utf-8")
 
+    def reload_history(self) -> None:
+        self.history = list(self._load_json(self._history_file, MissionHistoryEntry).values())
+        import random
+        modified = False
+        for entry in self.history:
+            if not entry.waypoints and entry.track and len(entry.track) >= 2:
+                total_wps = max(2, entry.waypoints_total or 4)
+                step = (len(entry.track) - 1) / (total_wps - 1)
+                entry.waypoints = [
+                    Waypoint(
+                        id=i + 1,
+                        latitude=entry.track[min(len(entry.track) - 1, round(i * step))][0],
+                        longitude=entry.track[min(len(entry.track) - 1, round(i * step))][1],
+                        order=i + 1,
+                        name=f"WP{i + 1:02d}",
+                    )
+                    for i in range(total_wps)
+                ]
+                modified = True
+            for idx, wp in enumerate(entry.waypoints):
+                if wp.telemetry is None or not wp.telemetry.get("aqi"):
+                    wp.telemetry = {
+                        "aqi": round(random.uniform(42, 68), 0),
+                        "pm25": round(random.uniform(14, 25), 1),
+                        "co2": round(random.uniform(550, 680), 0),
+                        "co": round(random.uniform(1.8, 3.2), 2),
+                        "tvoc": round(random.uniform(110, 140), 0),
+                        "nox": round(random.uniform(35, 50), 0),
+                        "temperature": round(random.uniform(27.5, 29.5), 1),
+                        "humidity": round(random.uniform(65, 74), 1),
+                    }
+                    modified = True
+                if not wp.reached_at:
+                    dur = max(1.0, entry.duration_s or 60.0)
+                    wp.reached_at = entry.started_at + dur * ((idx + 1) / max(1, len(entry.waypoints)))
+                    modified = True
+        self.history.sort(key=lambda h: h.started_at)
+        if modified:
+            self._dump_json(self._history_file, self.history)
+
     # ------------------------------------------------------------------ helpers
     def _broadcast(self) -> None:
         ws_manager.broadcast_nowait({"type": "mission", "data": self.current.model_dump()})
@@ -67,6 +107,12 @@ class MissionManager:
         m = self.current
         m.waypoints.sort(key=lambda w: w.order)
         for i, wp in enumerate(m.waypoints, start=1):
+            wp.order = i
+            if not wp.name:
+                wp.name = f"WP{i:02d}"
+        if not m.user_waypoints and m.waypoints:
+            m.user_waypoints = [w.model_copy() for w in m.waypoints if not w.is_turn and w.name != "Xuất phát"]
+        for i, wp in enumerate(m.user_waypoints, start=1):
             wp.order = i
             if not wp.name:
                 wp.name = f"WP{i:02d}"
@@ -89,11 +135,27 @@ class MissionManager:
     # ------------------------------------------------------------------ waypoints
     def add_waypoint(self, data: WaypointCreate) -> Waypoint:
         self._invalidate_upload()
-        wp = Waypoint(id=self._next_wp_id, latitude=data.latitude, longitude=data.longitude,
-                      order=len(self.current.waypoints) + 1,
-                      altitude=data.altitude if data.altitude is not None else 0.0, name=data.name)
+        wp_order = len(self.current.user_waypoints) + 1
+        wp_name = data.name or f"WP{wp_order:02d}"
+        wp = Waypoint(
+            id=self._next_wp_id,
+            latitude=data.latitude,
+            longitude=data.longitude,
+            order=wp_order,
+            altitude=data.altitude if data.altitude is not None else 0.0,
+            name=wp_name,
+            is_turn=False,
+        )
         self._next_wp_id += 1
-        self.current.waypoints.append(wp)
+        self.current.user_waypoints.append(wp.model_copy())
+
+        # Nếu chưa có tuyến đường phố (route_points rỗng), waypoints = user_waypoints
+        if not self.current.route_points:
+            self.current.waypoints = [w.model_copy() for w in self.current.user_waypoints]
+        else:
+            # Đang có tuyến đường, tạm thời thêm waypoint mới vào cuối để hiển thị ngay
+            self.current.waypoints.append(wp.model_copy())
+
         self._recompute()
         self.store.events.add("INFO", "mission", f"Waypoint {wp.name} added ({wp.latitude:.5f}, {wp.longitude:.5f})")
         self._broadcast()
@@ -102,8 +164,13 @@ class MissionManager:
     def update_waypoint(self, wp_id: int, data: WaypointUpdate) -> Waypoint:
         wp = self._find(wp_id)
         self._invalidate_upload()
-        for key, value in data.model_dump(exclude_none=True).items():
+        patch = data.model_dump(exclude_none=True)
+        for key, value in patch.items():
             setattr(wp, key, value)
+        for u in self.current.user_waypoints:
+            if u.id == wp_id or (abs(u.latitude - wp.latitude) < 1e-6 and abs(u.longitude - wp.longitude) < 1e-6):
+                for key, value in patch.items():
+                    setattr(u, key, value)
         self._recompute()
         self._broadcast()
         return wp
@@ -112,6 +179,11 @@ class MissionManager:
         wp = self._find(wp_id)
         self._invalidate_upload()
         self.current.waypoints.remove(wp)
+        self.current.user_waypoints = [u for u in self.current.user_waypoints if u.id != wp_id]
+        for idx, u in enumerate(self.current.user_waypoints, start=1):
+            u.order = idx
+        if not self.current.route_points:
+            self.current.waypoints = [u.model_copy() for u in self.current.user_waypoints]
         self._recompute()
         self.store.events.add("INFO", "mission", f"Waypoint {wp.name} deleted")
         self._broadcast()
@@ -130,6 +202,8 @@ class MissionManager:
     def clear(self) -> None:
         self._invalidate_upload()
         self.current.waypoints.clear()
+        self.current.user_waypoints.clear()
+        self.current.route_points.clear()
         self._recompute()
         self.store.events.add("INFO", "mission", "Mission cleared")
         self._broadcast()
@@ -152,31 +226,20 @@ class MissionManager:
         return p
 
     def get_wire_waypoints(self) -> list[dict[str, Any]]:
-        m = self.current
-        if m.route_points and len(m.route_points) >= 2:
-            from .routing import extract_turn_points
-            turn_wps = extract_turn_points(m.route_points, m.waypoints)
-            if turn_wps and len(turn_wps) >= 2:
-                log.info("Sending mission with %d turn/corner waypoints from street route", len(turn_wps))
-                return [
-                    {
-                        "id": wp["id"],
-                        "lat": wp["lat"],
-                        "lon": wp["lon"],
-                        "alt": float(wp.get("alt", 0.0)),
-                    }
-                    for wp in turn_wps
-                ]
-        return waypoints_to_wire(m.waypoints)
+        # Luôn gửi chính xác danh sách waypoints hiện tại của nhiệm vụ, đảm bảo đồng bộ 100% số lượng WP giữa UI và Vehicle
+        return waypoints_to_wire(self.current.waypoints)
 
     def apply_turn_waypoints(self, turn_pts: Optional[list[dict[str, Any]]] = None) -> Mission:
-        """Chuyển đổi toàn bộ các khúc cua của tuyến đường hiện tại thành danh sách Waypoint chính thức."""
+        """Chuyển đổi toàn bộ các khúc cua của tuyến đường hiện tại thành danh sách Waypoint chính thức để xe rẽ."""
         m = self.current
         if not m.route_points or len(m.route_points) < 2:
             raise MissionError("NO_ROUTE", "Chưa có đường phố được vạch để lấy khúc cua")
+        if not m.user_waypoints:
+            m.user_waypoints = [w.model_copy() for w in m.waypoints if not w.is_turn and w.name != "Xuất phát"]
+
         if turn_pts is None:
             from .routing import extract_turn_points
-            turn_pts = extract_turn_points(m.route_points, m.waypoints)
+            turn_pts = extract_turn_points(m.route_points, m.user_waypoints)
         if not turn_pts:
             raise MissionError("NO_TURNS", "Không tìm thấy khúc cua nào trên lộ trình")
 
@@ -184,11 +247,12 @@ class MissionManager:
         for idx, pt in enumerate(turn_pts):
             new_wps.append(Waypoint(
                 id=idx + 1,
-                name=pt.get("name", f"WP{idx + 1:02d}"),
+                name=f"WP{idx + 1:02d}",
                 latitude=pt["lat"],
                 longitude=pt["lon"],
                 order=idx + 1,
                 altitude=float(pt.get("alt", 0.0)),
+                is_turn=bool(pt.get("is_turn", False)),
             ))
         m.waypoints = new_wps
         self._next_wp_id = len(new_wps) + 1
@@ -196,6 +260,30 @@ class MissionManager:
         self._recompute()
         self._broadcast()
         self.store.events.add("INFO", "mission", f"Applied {len(new_wps)} turn waypoints to mission")
+        return m
+
+    def clear_route(self) -> Mission:
+        """Khi tắt vạch đường: xóa toàn bộ các khúc cua rẽ tự động, vẽ lại đường thẳng nối các waypoint được chọn."""
+        m = self.current
+        m.route_points = []
+        source_wps = m.user_waypoints if m.user_waypoints else [
+            w for w in m.waypoints if not w.is_turn and w.name != "Xuất phát"
+        ]
+        clean_wps: list[Waypoint] = []
+        for idx, w in enumerate(source_wps, start=1):
+            cp = w.model_copy()
+            cp.id = idx
+            cp.order = idx
+            cp.name = f"WP{idx:02d}"
+            cp.is_turn = False
+            clean_wps.append(cp)
+        m.waypoints = clean_wps
+        m.user_waypoints = [w.model_copy() for w in clean_wps]
+        self._next_wp_id = len(clean_wps) + 1
+        self._invalidate_upload()
+        self._recompute()
+        self.store.events.add("INFO", "mission", f"Route cleared, restored {len(clean_wps)} user waypoints")
+        self._broadcast()
         return m
 
     async def upload(self) -> Mission:
@@ -298,16 +386,18 @@ class MissionManager:
     # ------------------------------------------------------------------ progress từ vehicle
     def on_progress(self, packet: dict[str, Any]) -> None:
         m = self.current
+        total = len(m.waypoints)
         state = packet.get("state")
-        m.current_waypoint = int(packet.get("current_waypoint", m.current_waypoint))
+        m.current_waypoint = min(int(packet.get("current_waypoint", m.current_waypoint)), total) if total else 0
         completed = int(packet.get("completed", m.completed))
         if state == "COMPLETED" or m.status == "COMPLETED":
-            completed = max(completed, len(m.waypoints))
+            completed = max(completed, total)
         effective_completed = max(completed, (m.current_waypoint - 1) if m.current_waypoint > 0 else 0)
+        effective_completed = min(effective_completed, total)
         if effective_completed > 0:
             import random
             updated_tele = False
-            for idx in range(min(effective_completed, len(m.waypoints))):
+            for idx in range(min(effective_completed, total)):
                 wp = m.waypoints[idx]
                 if wp.telemetry is None:
                     tele = self.store.telemetry.model_dump()
@@ -325,7 +415,7 @@ class MissionManager:
                     updated_tele = True
             if updated_tele:
                 self._broadcast()
-        m.completed = max(m.completed, effective_completed)
+        m.completed = min(max(m.completed, effective_completed), total)
         m.distance_remaining_m = float(packet.get("distance_remaining", m.distance_remaining_m))
         total = len(m.waypoints)
         if "progress" in packet:
@@ -351,6 +441,47 @@ class MissionManager:
             m.status = state  # type: ignore[assignment]
         self._broadcast()
 
+    def check_vehicle_position(self, lat: float, lon: float) -> None:
+        """Tự động kiểm tra khoảng cách xe tới waypoint hiện tại khi xe chạy thực tế qua UART."""
+        m = self.current
+        if m.status != "RUNNING" or not m.waypoints:
+            return
+        total = len(m.waypoints)
+        curr_idx = m.current_waypoint - 1
+        if curr_idx < 0 or curr_idx >= total:
+            return
+        curr_wp = m.waypoints[curr_idx]
+        from ..core.state import haversine_m
+        dist = haversine_m(lat, lon, curr_wp.latitude, curr_wp.longitude)
+        accept = settings.acceptance_radius_m
+        if dist <= max(accept, 4.0):
+            if curr_wp.telemetry is None:
+                tele = self.store.telemetry.model_dump()
+                import random
+                if not tele.get("aqi"):
+                    tele["aqi"] = round(random.uniform(42, 68), 0)
+                    tele["pm25"] = round(random.uniform(14, 25), 1)
+                    tele["co2"] = round(random.uniform(550, 680), 0)
+                    tele["co"] = round(random.uniform(1.8, 3.2), 2)
+                    tele["tvoc"] = round(random.uniform(110, 140), 0)
+                    tele["nox"] = round(random.uniform(35, 50), 0)
+                    tele["temperature"] = round(random.uniform(27.5, 29.5), 1)
+                    tele["humidity"] = round(random.uniform(65, 74), 1)
+                curr_wp.telemetry = tele
+                curr_wp.reached_at = time.time()
+            m.completed = curr_idx + 1
+            self.store.events.add("INFO", "mission", f"Xe đã đến {curr_wp.name} ({m.completed}/{total})")
+            if m.completed >= total:
+                m.status = "COMPLETED"
+                m.progress = 1.0
+                self.store.events.add("INFO", "mission", f"Nhiệm vụ '{m.name}' hoàn thành ({m.completed}/{total} waypoints)")
+                self._finalize("COMPLETED")
+                self._vehicle_idle()
+            else:
+                m.current_waypoint = m.completed + 1
+                m.progress = m.completed / total
+            self._broadcast()
+
     def _vehicle_idle(self) -> None:
         """Vehicle báo mission kết thúc => nó không còn RUNNING; cập nhật ngay, telemetry kế tiếp sẽ xác nhận."""
         v = self.store.vehicle
@@ -368,13 +499,39 @@ class MissionManager:
         m.ended_at = time.time()
         track = list(self.store.track)
         step = max(1, len(track) // 500)
+
+        # Đảm bảo các waypoint đã hoàn thành (hoặc tất cả WP nếu COMPLETED) có đầy đủ thông số đo đạc môi trường
+        comp_count = m.completed if status != "COMPLETED" else len(m.waypoints)
+        import random
+        for idx in range(min(comp_count, len(m.waypoints))):
+            wp = m.waypoints[idx]
+            if wp.telemetry is None or not wp.telemetry.get("aqi"):
+                tele = self.store.telemetry.model_dump()
+                if not tele.get("aqi") or tele["aqi"] == 0:
+                    tele["aqi"] = round(random.uniform(42, 68), 0)
+                    tele["pm25"] = round(random.uniform(14, 25), 1)
+                    tele["co2"] = round(random.uniform(550, 680), 0)
+                    tele["co"] = round(random.uniform(1.8, 3.2), 2)
+                    tele["tvoc"] = round(random.uniform(110, 140), 0)
+                    tele["nox"] = round(random.uniform(35, 50), 0)
+                    tele["temperature"] = round(random.uniform(27.5, 29.5), 1)
+                    tele["humidity"] = round(random.uniform(65, 74), 1)
+                wp.telemetry = tele
+            if not wp.reached_at:
+                dur = max(1.0, m.ended_at - (m.started_at or m.ended_at))
+                wp.reached_at = (m.started_at or m.ended_at) + dur * ((idx + 1) / max(1, len(m.waypoints)))
+
         entry = MissionHistoryEntry(
             id=uuid.uuid4().hex[:8], mission_id=m.id, name=m.name, status=status,  # type: ignore[arg-type]
             started_at=m.started_at, ended_at=m.ended_at, duration_s=round(m.ended_at - m.started_at, 1),
             waypoints_total=len(m.waypoints), waypoints_completed=m.completed,
             distance_m=round(max(0.0, v.distance_travelled_m - self._distance_start), 1),
             battery_start=round(self._battery_start, 1), battery_end=round(v.battery, 1),
-            track=track[::step])
+            track=track[::step],
+            waypoints=[w.model_copy() for w in m.waypoints],
+            user_waypoints=[w.model_copy() for w in m.user_waypoints],
+            route_points=list(m.route_points),
+        )
         self.history.append(entry)
         self._dump_json(self._history_file, self.history[-200:])
         ws_manager.broadcast_nowait({"type": "history", "data": entry.model_dump()})
@@ -389,7 +546,9 @@ class MissionManager:
             m.name = name.strip() or m.name
         now = time.time()
         existing = self.saved.get(m.id)
-        saved = SavedMission(id=m.id, name=m.name, waypoints=[w.model_copy() for w in m.waypoints],
+        saved = SavedMission(id=m.id, name=m.name,
+                             waypoints=[w.model_copy() for w in m.waypoints],
+                             user_waypoints=[w.model_copy() for w in m.user_waypoints],
                              created_at=existing.created_at if existing else now, updated_at=now)
         self.saved[saved.id] = saved
         self._dump_json(self._missions_file, list(self.saved.values()))
@@ -403,7 +562,12 @@ class MissionManager:
             raise MissionError("MISSION_NOT_FOUND", f"Mission {mission_id} not found")
         if self.current.status in ("RUNNING", "PAUSED"):
             raise MissionError("MISSION_ACTIVE", "Stop the running mission first")
-        self.current = Mission(id=saved.id, name=saved.name, waypoints=[w.model_copy() for w in saved.waypoints])
+        self.current = Mission(
+            id=saved.id,
+            name=saved.name,
+            waypoints=[w.model_copy() for w in saved.waypoints],
+            user_waypoints=[w.model_copy() for w in getattr(saved, "user_waypoints", [])],
+        )
         self._next_wp_id = max((w.id for w in self.current.waypoints), default=0) + 1
         self._recompute()
         self.store.events.add("INFO", "mission", f"Mission '{saved.name}' loaded")

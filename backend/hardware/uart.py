@@ -47,13 +47,15 @@ class UARTTelemetryProvider(TelemetryProvider):
     # ------------------------------------------------------------------ status
     @property
     def connected(self) -> bool:
-        return self._connected and (time.time() - self._last_rx) < settings.uart_timeout_s
+        # Khi serial port đang mở thành công, giữ trạng thái kết nối sẵn sàng chờ STM32 gửi
+        return self._connected and self._serial is not None and getattr(self._serial, "is_open", False)
 
     @property
     def detail(self) -> str:
-        if self._last_error and not self._connected:
+        if self._last_error and not self.connected:
             return self._last_error
-        return f"{self.port} @ {self.baudrate}"
+        status = "sẵn sàng chờ dữ liệu" if (time.time() - self._last_rx > 10.0) else "online"
+        return f"{self.port} @ {self.baudrate} ({status})"
 
     # ------------------------------------------------------------------ lifecycle
     async def start(self) -> None:
@@ -62,7 +64,7 @@ class UARTTelemetryProvider(TelemetryProvider):
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._reader_loop, name="uart-reader", daemon=True)
         self._thread.start()
-        log.info("UART provider started on %s @ %d", self.port, self.baudrate)
+        log.info("UART provider started, waiting for STM32 on %s @ %d", self.port, self.baudrate)
 
     async def stop(self) -> None:
         self._stop_event.set()
@@ -72,19 +74,47 @@ class UARTTelemetryProvider(TelemetryProvider):
         self._close_serial()
         log.info("UART provider stopped")
 
-    def _open_serial(self) -> bool:
+    def _find_candidate_port(self) -> Optional[str]:
+        if serial is None:
+            return None
         try:
-            self._serial = serial.Serial(self.port, self.baudrate, timeout=1)
-            self._connected = True
-            self._last_rx = time.time()
-            self._last_error = ""
-            log.info("UART connected: %s", self.port)
-            self.emit({"type": "log", "level": "INFO", "message": f"UART connected on {self.port}"})
-            return True
-        except Exception as exc:  # noqa: BLE001
-            self._last_error = str(exc)
-            self._connected = False
-            return False
+            import serial.tools.list_ports as lp
+            ports = list(lp.comports())
+            if not ports:
+                return None
+            for p in ports:
+                desc = (p.description or "").lower()
+                if any(x in desc for x in ("stm", "ch340", "cp210", "ftdi", "usb serial", "prolific", "uart")):
+                    return p.device
+            return ports[0].device
+        except Exception:
+            return None
+
+    def _open_serial(self) -> bool:
+        ports_to_try = [self.port]
+        candidate = self._find_candidate_port()
+        if candidate and candidate not in ports_to_try:
+            ports_to_try.append(candidate)
+
+        last_exc = None
+        for port in ports_to_try:
+            if not port:
+                continue
+            try:
+                self._serial = serial.Serial(port, self.baudrate, timeout=1)
+                self.port = port
+                self._connected = True
+                self._last_rx = time.time()
+                self._last_error = ""
+                log.info("UART connected: %s @ %d (chờ STM32 gửi dữ liệu...)", port, self.baudrate)
+                self.emit({"type": "log", "level": "INFO", "message": f"UART connected on {port} @ {self.baudrate}. Sẵn sàng chờ STM32 gửi..."})
+                return True
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+
+        self._last_error = str(last_exc) if last_exc else "No available serial port"
+        self._connected = False
+        return False
 
     def _close_serial(self) -> None:
         if self._serial is not None:
@@ -96,12 +126,12 @@ class UARTTelemetryProvider(TelemetryProvider):
         self._connected = False
 
     def _reader_loop(self) -> None:
-        """Thread: mở cổng, đọc dòng, parse, emit. Tự reconnect khi lỗi."""
+        """Thread: mở cổng, luôn ở trạng thái chờ STM32 gửi dữ liệu, parse và emit ngay lên web."""
         while not self._stop_event.is_set():
-            if self._serial is None and not self._open_serial():
-                log.warning("UART open failed (%s), retry in %.0fs", self._last_error, self.RECONNECT_DELAY_S)
-                self._stop_event.wait(self.RECONNECT_DELAY_S)
-                continue
+            if self._serial is None or not getattr(self._serial, "is_open", False):
+                if not self._open_serial():
+                    self._stop_event.wait(self.RECONNECT_DELAY_S)
+                    continue
             try:
                 raw = self._serial.readline()
             except Exception as exc:  # noqa: BLE001 — cáp rút / thiết bị mất
@@ -110,20 +140,24 @@ class UARTTelemetryProvider(TelemetryProvider):
                 self._last_error = str(exc)
                 self._close_serial()
                 continue
+
             if not raw:
-                if self._connected and time.time() - self._last_rx > settings.uart_timeout_s:
-                    log.warning("UART timeout: no packet for %.1fs", settings.uart_timeout_s)
+                # Chờ STM32 gửi dữ liệu tiếp theo
                 continue
+
             try:
                 packet = parse_packet(raw)
             except ProtocolError as exc:
-                log.error("Invalid telemetry packet: %s", exc)
+                log.debug("UART unparsed line: %s (%s)", raw[:80], exc)
                 continue
+
             if packet is None:
                 continue
+
             self._last_rx = time.time()
             self._connected = True
-            if packet["type"] == "ack":
+            log.debug("UART RX: %s", packet)
+            if packet.get("type") == "ack":
                 self._resolve_ack(packet)
             self.emit(packet)
 

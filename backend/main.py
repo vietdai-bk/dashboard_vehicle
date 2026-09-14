@@ -138,7 +138,7 @@ else:
 def run() -> None:
     import uvicorn
     uvicorn.run("backend.main:app", host=settings.server_host, port=settings.server_port,
-                log_level=settings.log_level.lower(), ws_ping_interval=20, ws_ping_timeout=20)
+                log_level=settings.log_level.lower(), ws_ping_interval=20, ws_ping_timeout=20, reload=True)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { ControlPanel, describeError } from "../components/ControlPanel";
+import { MissionHistory } from "../components/MissionHistory";
 import { MissionSummary } from "../components/MissionSummary";
 import { VehicleMap } from "../components/VehicleMap";
 import { VehicleStatusPanel } from "../components/VehicleStatusPanel";
@@ -29,7 +30,7 @@ export function MapsPage() {
   }, [mission?.started_at, mission?.ended_at]);
 
   // bỏ overlay track lịch sử khi rời page
-  useEffect(() => () => setState({ historyTrack: null }), []);
+  useEffect(() => () => setState({ historyTrack: null, historyWaypoints: null }), []);
 
   const run = useCallback(async (label: string, fn: () => Promise<unknown>, success?: string) => {
     setBusy(label);
@@ -43,18 +44,38 @@ export function MapsPage() {
     }
   }, []);
 
-  const addWaypoint = (lat: number, lon: number) => run("ADD WP", () => api.mission.addWaypoint(lat, lon));
-  const moveWaypoint = (id: number, lat: number, lon: number) => run("MOVE WP", () => api.mission.updateWaypoint(id, { latitude: lat, longitude: lon }));
+  const addWaypoint = (lat: number, lon: number) =>
+    run("ADD WP", async () => {
+      const res = await api.mission.addWaypoint(lat, lon);
+      if (res?.mission) setState({ mission: res.mission });
+    });
+  const moveWaypoint = (id: number, lat: number, lon: number) =>
+    run("MOVE WP", async () => {
+      const res = await api.mission.updateWaypoint(id, { latitude: lat, longitude: lon });
+      if (res?.mission) setState({ mission: res.mission });
+    });
   const updateWaypoint = (id: number, patch: Partial<Pick<Waypoint, "latitude" | "longitude" | "altitude" | "name">>) =>
-    run("EDIT WP", () => api.mission.updateWaypoint(id, patch));
-  const deleteWaypoint = (id: number) => run("DELETE WP", () => api.mission.deleteWaypoint(id));
-  const reorder = (ids: number[]) => run("REORDER", () => api.mission.reorder(ids));
+    run("EDIT WP", async () => {
+      const res = await api.mission.updateWaypoint(id, patch);
+      if (res?.mission) setState({ mission: res.mission });
+    });
+  const deleteWaypoint = (id: number) =>
+    run("DELETE WP", async () => {
+      const m = await api.mission.deleteWaypoint(id);
+      if (m) setState({ mission: m });
+    });
+  const reorder = (ids: number[]) =>
+    run("REORDER", async () => {
+      const m = await api.mission.reorder(ids);
+      if (m) setState({ mission: m });
+    });
 
   return (
     <div className="page maps">
       <div className="col mission-col">
         <ControlPanel mission={mission} busy={busy} run={run} />
         <MissionSummary mission={mission} elapsedS={elapsed} />
+        <MissionHistory />
       </div>
       <div className="col map-col">
         {alerts.length > 0 && (

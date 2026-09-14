@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useStore } from "../hooks/useStore";
 import { toast } from "../hooks/useToast";
 import { api } from "../services/api";
-import { setState } from "../stores/store";
+import { getState, setState } from "../stores/store";
 import type { Mission, Waypoint } from "../types";
 import { IconFit, IconMaximize, IconMinimize, IconRoute, IconSatellite, IconTarget, IconTrash } from "./icons";
 
@@ -19,7 +19,7 @@ interface Props {
 
 type LayerType = "street" | "satellite" | "hybrid";
 
-function getAqiBadge(aqi: number) {
+export function getAqiBadge(aqi: number) {
   if (aqi <= 50) return { label: "Tốt", bg: "#dcfce7", fg: "#15803d" };
   if (aqi <= 100) return { label: "Trung bình", bg: "#fef9c3", fg: "#a16207" };
   if (aqi <= 150) return { label: "Kém", bg: "#ffedd5", fg: "#c2410c" };
@@ -27,7 +27,7 @@ function getAqiBadge(aqi: number) {
   return { label: "Nguy hại", bg: "#f3e8ff", fg: "#7e22ce" };
 }
 
-function buildWaypointPopupHtml(wp: Waypoint, index: number, isPassed: boolean, currentAqi?: number): string {
+export function buildWaypointPopupHtml(wp: Waypoint, index: number, isPassed: boolean, currentAqi?: number): string {
   const t = wp.telemetry;
   const reachedTime = wp.reached_at
     ? new Date(wp.reached_at * 1000).toLocaleTimeString()
@@ -155,13 +155,16 @@ export function VehicleMap({ mission, onMapClick, onWaypointMoved, selectedWaypo
   const mapRef = useRef<L.Map | null>(null);
   const layers = useRef<{
     tiles: L.TileLayer | null; vehicle: L.Marker | null; home: L.Marker | null;
-    route: L.Polyline; streetRoute: L.Polyline; track: L.Polyline; histTrack: L.Polyline; wps: Map<number, L.Marker>;
+    route: L.Polyline; streetRoute: L.Polyline; track: L.Polyline; wps: Map<number, L.Marker>;
   } | null>(null);
   const markerStateRef = useRef<Map<number, { cls: string; lat: number; lon: number }>>(new Map());
   const [follow, setFollow] = useState(true);
   const [isFullMap, setIsFullMap] = useState(false);
   const [layerType, setLayerType] = useState<LayerType>("street");
   const [routing, setRouting] = useState(false);
+  const [autoRoute, setAutoRoute] = useState(true); // Mặc định tự động vạch đường sẵn khi chọn waypoint
+  const autoRouteTimerRef = useRef<number | null>(null);
+  const prevWpsSignatureRef = useRef<string>("");
 
   const followRef = useRef(true);
   const centeredOnce = useRef(false);
@@ -171,7 +174,6 @@ export function VehicleMap({ mission, onMapClick, onWaypointMoved, selectedWaypo
   const vehicle = useStore((s) => s.vehicle);
   const telemetry = useStore((s) => s.telemetry);
   const track = useStore((s) => s.track);
-  const historyTrack = useStore((s) => s.historyTrack);
   const settings = useStore((s) => s.settings);
   const defaultTiles = settings?.map_tiles ?? "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
   const defaultAttribution = settings?.map_attribution ?? "&copy; OpenStreetMap contributors";
@@ -207,8 +209,7 @@ export function VehicleMap({ mission, onMapClick, onWaypointMoved, selectedWaypo
     const route = L.polyline([], { color: "#1a4d8f", weight: 2, opacity: 0.8, dashArray: "5 5" }).addTo(map);
     const streetRoute = L.polyline([], { color: "#0284c7", weight: 4, opacity: 0.95, lineCap: "round", lineJoin: "round" }).addTo(map);
     const trackLine = L.polyline([], { color: "#157a3a", weight: 3, opacity: 0.95 }).addTo(map);
-    const histTrack = L.polyline([], { color: "#7d8795", weight: 3, opacity: 0.8, dashArray: "2 6" }).addTo(map);
-    layers.current = { tiles: null, vehicle: null, home: null, route, streetRoute, track: trackLine, histTrack, wps: new Map() };
+    layers.current = { tiles: null, vehicle: null, home: null, route, streetRoute, track: trackLine, wps: new Map() };
     mapRef.current = map;
 
     map.on("click", (e: L.LeafletMouseEvent) => {
@@ -278,17 +279,11 @@ export function VehicleMap({ mission, onMapClick, onWaypointMoved, selectedWaypo
       } else ly.home.setLatLng(home);
     }
     if (!centeredOnce.current) { map.setView(pos, 17); centeredOnce.current = true; }
-    else if (followRef.current && vehicle.state === "RUNNING") map.panTo(pos, { animate: true, duration: 0.3 });
+    else if (followRef.current) map.panTo(pos, { animate: true, duration: 0.3 });
   }, [vehicle.latitude, vehicle.longitude, vehicle.heading, vehicle.home_latitude, vehicle.home_longitude, vehicle.state]);
 
   // ---- track thực tế ---------------------------------------------------------------------------------
   useEffect(() => { layers.current?.track.setLatLngs(track); }, [track]);
-  useEffect(() => {
-    const ly = layers.current, map = mapRef.current;
-    if (!ly || !map) return;
-    ly.histTrack.setLatLngs(historyTrack ?? []);
-    if (historyTrack && historyTrack.length > 1) map.fitBounds(L.latLngBounds(historyTrack), { padding: [30, 30] });
-  }, [historyTrack]);
 
   // ---- waypoints + route -----------------------------------------------------------------------------
   useEffect(() => {
@@ -307,25 +302,22 @@ export function VehicleMap({ mission, onMapClick, onWaypointMoved, selectedWaypo
       const badge = getAqiBadge(aqiNum ?? 58);
       const popupHtml = buildWaypointPopupHtml(wp, i, isPassed, telemetry?.aqi);
       const badgeText = isPassed && aqiNum != null
-        ? `${wp.name || `WP${i + 1}`} · AQI ${aqiNum.toFixed(0)}`
-        : `${wp.name || `WP${i + 1}`}`;
+        ? `WP${String(i + 1).padStart(2, "0")} · AQI ${aqiNum.toFixed(0)}`
+        : `WP${String(i + 1).padStart(2, "0")}`;
       const tooltipHtml = isPassed && aqiNum != null
         ? `<div style="font-weight:700;font-size:12px;text-align:center;line-height:1.35;">
-             <div>${wp.name || `Waypoint ${i + 1}`}</div>
+             <div>WP${String(i + 1).padStart(2, "0")}</div>
              <div style="display:inline-block;color:${badge.fg};background:${badge.bg};padding:1px 6px;border-radius:3px;font-size:11px;margin-top:2px;">AQI: ${aqiNum.toFixed(0)} (${badge.label})</div>
            </div>`
-        : `<div style="font-weight:600;font-size:11.5px;">${wp.name || `Waypoint ${i + 1}`}</div>`;
-
-      const isTurn = !!(wp.name?.includes("Khúc cua") || wp.name?.includes("Rẽ") || wp.name?.includes("Cua") || wp.name?.includes("Quay"));
-      const wpCls = `${cls} ${isTurn ? "turn" : ""}`.trim();
+        : `<div style="font-weight:600;font-size:11.5px;">WP${String(i + 1).padStart(2, "0")}</div>`;
 
       const icon = L.divIcon({
         className: "wp-marker-wrapper",
         html: `
           <div class="wp-pin-container">
-            <div class="wp-name-badge ${wpCls}">${badgeText}</div>
-            <div class="wp-icon ${wpCls}">${i + 1}</div>
-            <div class="wp-pin-tip ${wpCls}"></div>
+            <div class="wp-name-badge ${cls}">${badgeText}</div>
+            <div class="wp-icon ${cls}">${i + 1}</div>
+            <div class="wp-pin-tip ${cls}"></div>
           </div>
         `,
         iconSize: [26, 31],
@@ -363,8 +355,10 @@ export function VehicleMap({ mission, onMapClick, onWaypointMoved, selectedWaypo
         m.setIcon(icon);
         markerStateRef.current.set(wp.id, { cls, lat: wp.latitude, lon: wp.longitude });
         if (editable) m.dragging?.enable(); else m.dragging?.disable();
-        m.setTooltipContent(tooltipHtml);
-        m.setPopupContent(popupHtml);
+        if (m.getTooltip()) m.setTooltipContent(tooltipHtml);
+        else m.bindTooltip(tooltipHtml, { direction: "top", offset: [0, -32], opacity: 0.95 });
+        if (m.getPopup()) m.setPopupContent(popupHtml);
+        else m.bindPopup(popupHtml, { minWidth: 240, maxWidth: 320, autoClose: false, closeOnClick: false, autoPan: false });
         bindMarkerEvents(m);
       }
     });
@@ -418,23 +412,32 @@ export function VehicleMap({ mission, onMapClick, onWaypointMoved, selectedWaypo
     setLayerType((curr) => (curr === "street" ? "satellite" : curr === "satellite" ? "hybrid" : "street"));
   };
 
-  const handleCalculateStreetRoute = async () => {
-    const wps = mission?.waypoints ?? [];
-    if (wps.length === 0) {
-      toast("warning", "Vui lòng tạo ít nhất 1 waypoint để tìm đường");
+  const handleCalculateStreetRoute = async (silent = false, customWps?: Waypoint[]) => {
+    // Luôn lấy mission và vehicle mới nhất từ store để tránh stale closure
+    const currentMission = getState().mission ?? mission;
+    const currentVehicle = getState().vehicle ?? vehicle;
+    const userWps = customWps ?? (
+      (currentMission?.user_waypoints && currentMission.user_waypoints.length > 0)
+        ? currentMission.user_waypoints
+        : (currentMission?.waypoints ?? []).filter((w: Waypoint) => !w.is_turn && w.name !== "Xuất phát")
+    );
+
+    if (userWps.length === 0) {
+      if (!silent) toast("warning", "Vui lòng tạo ít nhất 1 waypoint để tìm đường");
       return;
     }
     try {
       setRouting(true);
       const res = await api.mission.calculateRoute({
-        vehicle_lat: vehicle.latitude || undefined,
-        vehicle_lon: vehicle.longitude || undefined,
-        waypoints: wps.map((w) => [w.latitude, w.longitude]),
+        vehicle_lat: currentVehicle.latitude || undefined,
+        vehicle_lon: currentVehicle.longitude || undefined,
+        waypoints: userWps.map((w: Waypoint) => [w.latitude, w.longitude]),
       });
 
       if (res.route && res.route.length > 0) {
         if (layers.current) {
           layers.current.streetRoute.setLatLngs(res.route);
+          layers.current.route.setLatLngs([]);
         }
         if (res.mission) {
           setState({ mission: res.mission });
@@ -443,30 +446,101 @@ export function VehicleMap({ mission, onMapClick, onWaypointMoved, selectedWaypo
             mission: s.mission ? { ...s.mission, route_points: res.route } : s.mission,
           }));
         }
-        const km = (res.distance_m / 1000).toFixed(2);
-        const mins = Math.max(1, Math.round(res.duration_s / 60));
-        const numWps = res.mission?.waypoints?.length ?? (res.turn_points ? res.turn_points.length : 0);
-        toast("success", `Đã vạch đường theo phố: ${km} km (~${mins} phút), tự động tạo ${numWps} điểm cua cho xe`);
-      } else {
+        if (!silent) {
+          const km = (res.distance_m / 1000).toFixed(2);
+          const mins = Math.max(1, Math.round(res.duration_s / 60));
+          const numWps = res.mission?.waypoints?.length ?? (res.turn_points ? res.turn_points.length : 0);
+          toast("success", `Đã vạch đường theo phố: ${km} km (~${mins} phút), tự động tạo ${numWps} điểm cho xe`);
+        }
+      } else if (!silent) {
         toast("warning", "Không tìm thấy lộ trình phù hợp");
       }
     } catch (err) {
-      toast("error", `Lỗi tìm đường phố: ${err instanceof Error ? err.message : String(err)}`);
+      if (!silent) toast("error", `Lỗi tìm đường phố: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setRouting(false);
     }
   };
 
+  // Đảo ngược logic: Mặc định tự động vạch đường sẵn khi thêm waypoint
+  // Khi nhấn nút: Tắt vạch đường (vẽ đường thẳng, xóa các điểm rẽ). Nhấn lại: Bật lại vạch đường.
+  const handleToggleStreetRoute = async () => {
+    const hasRoute = (mission?.route_points?.length ?? 0) > 0;
+    if (autoRoute || hasRoute) {
+      // Đang bật vạch đường -> TẮT vạch đường
+      setAutoRoute(false);
+      prevWpsSignatureRef.current = "";
+      try {
+        const cleanMission = await api.mission.clearRoute();
+        setState({ mission: cleanMission });
+        if (layers.current) {
+          layers.current.streetRoute.setLatLngs([]);
+          const cleanWps = cleanMission?.waypoints ?? [];
+          layers.current.route.setStyle({ opacity: 0.85, dashArray: "5 5" });
+          layers.current.route.setLatLngs(cleanWps.map((w) => [w.latitude, w.longitude] as [number, number]));
+        }
+        toast("info", "Đã tắt vạch đường phố (vẽ đường thẳng, xóa các điểm rẽ)");
+      } catch (err) {
+        console.error(err);
+        // Fallback dọn dẹp tại frontend nếu server bận
+        setState((s) => {
+          if (!s.mission) return s;
+          const cleanWps = (s.mission.user_waypoints && s.mission.user_waypoints.length > 0)
+            ? s.mission.user_waypoints
+            : s.mission.waypoints.filter((w) => !w.is_turn && w.name !== "Xuất phát");
+          return {
+            mission: {
+              ...s.mission,
+              route_points: [],
+              waypoints: cleanWps.map((w, idx) => ({ ...w, order: idx + 1, is_turn: false })),
+            },
+          };
+        });
+      }
+    } else {
+      // Đang tắt vạch đường -> BẬT LẠI vạch đường
+      setAutoRoute(true);
+      prevWpsSignatureRef.current = "";
+      void handleCalculateStreetRoute(false);
+    }
+  };
+
+  // Tự động vạch đường khi thêm/sửa waypoint nếu autoRoute = true
+  useEffect(() => {
+    if (!autoRoute || !editable) return;
+    const currentMission = getState().mission ?? mission;
+    const userWps = (currentMission?.user_waypoints && currentMission.user_waypoints.length > 0)
+      ? currentMission.user_waypoints
+      : (currentMission?.waypoints ?? []).filter((w: Waypoint) => !w.is_turn && w.name !== "Xuất phát");
+    if (userWps.length === 0) {
+      prevWpsSignatureRef.current = "";
+      return;
+    }
+    if (currentMission?.status === "RUNNING" || currentMission?.status === "PAUSED") return;
+
+    // Signature theo user waypoints để kiểm tra xem waypoints mục tiêu có thay đổi không
+    const sig = `${userWps.length}:${userWps.map((w: Waypoint) => `${w.latitude.toFixed(5)},${w.longitude.toFixed(5)}`).join(";")}`;
+    if (sig === prevWpsSignatureRef.current) return;
+
+    if (autoRouteTimerRef.current) window.clearTimeout(autoRouteTimerRef.current);
+    autoRouteTimerRef.current = window.setTimeout(async () => {
+      prevWpsSignatureRef.current = sig;
+      await handleCalculateStreetRoute(true, userWps);
+    }, 150);
+
+    return () => {
+      if (autoRouteTimerRef.current) window.clearTimeout(autoRouteTimerRef.current);
+    };
+  }, [autoRoute, editable, mission?.user_waypoints, mission?.waypoints, mission?.status]);
+
   const handleClearTrack = async () => {
     try {
       setState((s) => ({
         track: [],
-        historyTrack: null,
         mission: s.mission ? { ...s.mission, route_points: [] } : s.mission,
       }));
       if (layers.current) {
         layers.current.track.setLatLngs([]);
-        layers.current.histTrack.setLatLngs([]);
         layers.current.streetRoute.setLatLngs([]);
       }
       await Promise.allSettled([
@@ -480,7 +554,8 @@ export function VehicleMap({ mission, onMapClick, onWaypointMoved, selectedWaypo
   };
 
   const hasStreetRoute = (mission?.route_points?.length ?? 0) > 0;
-  const hasTrack = track.length > 0 || (historyTrack !== null && historyTrack.length > 0) || hasStreetRoute;
+  const isRoutingActive = autoRoute || hasStreetRoute;
+  const hasTrack = track.length > 0 || hasStreetRoute;
 
   return (
     <div className={`map-wrap ${isFullMap ? "fullscreen" : ""} ${editable ? "editable" : ""}`}>
@@ -499,12 +574,17 @@ export function VehicleMap({ mission, onMapClick, onWaypointMoved, selectedWaypo
           </div>
           <div className="row" style={{ gap: 6 }}>
             <button
-              className={`btn sm ${hasStreetRoute ? "active" : ""}`}
-              onClick={() => void handleCalculateStreetRoute()}
+              className={`btn sm ${isRoutingActive ? "warn active" : ""}`}
+              onClick={() => void handleToggleStreetRoute()}
               disabled={routing || (mission?.waypoints?.length ?? 0) === 0}
-              title="Tìm đường đi ngắn nhất theo phố từ xe tới các waypoint"
+              title={
+                isRoutingActive
+                  ? "Đang vạch đường sẵn. Nhấn để TẮT vạch đường (không vạch đường nữa)"
+                  : "Đang tắt vạch đường. Nhấn để BẬT lại chế độ vạch đường theo phố"
+              }
             >
-              <IconRoute width={14} height={14} /> {routing ? "Đang tính..." : "Vạch đường"}
+              <IconRoute width={14} height={14} />{" "}
+              {routing ? "Đang tính..." : isRoutingActive ? "Tắt vạch đường" : "Vạch đường"}
             </button>
             <button
               className="btn sm"
@@ -541,12 +621,17 @@ export function VehicleMap({ mission, onMapClick, onWaypointMoved, selectedWaypo
           </button>
 
           <button
-            className={`btn sm ${hasStreetRoute ? "active" : ""}`}
-            onClick={() => void handleCalculateStreetRoute()}
+            className={`btn sm ${isRoutingActive ? "warn active" : ""}`}
+            onClick={() => void handleToggleStreetRoute()}
             disabled={routing || (mission?.waypoints?.length ?? 0) === 0}
-            title="Tìm đường đi ngắn nhất theo phố từ xe tới các waypoint và vạch đường chạy"
+            title={
+              isRoutingActive
+                ? "Đang vạch đường sẵn. Nhấn để TẮT vạch đường (không vạch đường nữa)"
+                : "Đang tắt vạch đường. Nhấn để BẬT lại chế độ vạch đường theo phố"
+            }
           >
-            <IconRoute width={14} height={14} /> {routing ? "Đang tính..." : "Vạch đường"}
+            <IconRoute width={14} height={14} />{" "}
+            {routing ? "Đang tính..." : isRoutingActive ? "Tắt vạch đường" : "Vạch đường"}
           </button>
 
           <button
@@ -569,9 +654,20 @@ export function VehicleMap({ mission, onMapClick, onWaypointMoved, selectedWaypo
       )}
 
       {showToolbar && (
-        <div className="map-hint">
-          {editable ? "Click map to add waypoint · drag marker to move" : "Mission active — editing locked"}
-          {" · "}{vehicle.latitude.toFixed(5)}, {vehicle.longitude.toFixed(5)}
+        <div className="map-hint" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span>{editable ? "Nhấp bản đồ để thêm waypoint · Kéo marker để dời" : "Nhiệm vụ đang hoạt động"}</span>
+          <span style={{ opacity: 0.4 }}>|</span>
+          <span className="mono" style={{ fontWeight: 600, color: "var(--text)" }}>
+            GPS: {vehicle.latitude ? vehicle.latitude.toFixed(6) : "--"}, {vehicle.longitude ? vehicle.longitude.toFixed(6) : "--"}
+          </span>
+          <span className="badge neutral mono" style={{ fontSize: 10 }}>
+            {vehicle.speed.toFixed(1)} km/h · {vehicle.heading.toFixed(0)}°
+          </span>
+          {track.length > 0 && (
+            <span className="badge ok mono" style={{ fontSize: 10 }}>
+              Track: {track.length} pts
+            </span>
+          )}
         </div>
       )}
     </div>

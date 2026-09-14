@@ -67,6 +67,11 @@ export function WaypointList({ mission, editable, onUpdate, onDelete, onReorder,
               <div className="row" style={{ gap: 6, alignItems: "center" }}>
                 <input className="input sm wp-name" defaultValue={wp.name} disabled={!editable}
                   onBlur={(e) => e.target.value !== wp.name && onUpdate(wp.id, { name: e.target.value })} aria-label="Waypoint name" placeholder="Name" />
+                {wp.is_turn && (
+                  <span className="badge info mono" style={{ fontSize: 9.5, padding: "1px 5px", whiteSpace: "nowrap" }} title="Điểm cua rẽ tự động theo đường phố để điều khiển xe">
+                    RẼ
+                  </span>
+                )}
                 {wp.telemetry && (
                   <button
                     type="button"

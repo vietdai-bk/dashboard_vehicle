@@ -197,16 +197,16 @@ a { color: var(--primary); }
 
 /* Waypoint pin marker with sharp bottom pointer tip pointing exactly to coordinates */
 .wp-marker-wrapper { position: relative !important; overflow: visible !important; }
-.wp-pin-container { position: relative; width: 26px; height: 31px; display: flex; flex-direction: column; align-items: center; }
+.wp-pin-container { position: relative; width: 26px; height: 31px; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; }
 .wp-icon { width: 24px; height: 24px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 1.5px 5px rgba(0,0,0,.35); background: var(--primary); color: #fff; font: 700 10px var(--mono); display: grid; place-items: center; cursor: pointer; pointer-events: auto; z-index: 2; transition: transform 0.15s ease, background-color 0.15s ease; }
 .wp-icon:hover { transform: scale(1.12); }
 .wp-icon.done { background: var(--ok); }
 .wp-icon.current { background: var(--warn); box-shadow: 0 0 0 4px rgba(178,94,0,.3), 0 1.5px 5px rgba(0,0,0,.35); }
 .wp-icon.start { background: var(--text); }
-.wp-icon.turn { background: #0284c7; }
+.wp-icon.turn { background: #0284c7; box-shadow: 0 1.5px 5px rgba(2, 132, 199, 0.45); }
 
-/* Mũi kim định vị chính xác ở đáy pin */
-.wp-pin-tip { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 7px solid var(--primary); margin-top: -1px; filter: drop-shadow(0 1.5px 2px rgba(0,0,0,0.35)); z-index: 1; }
+/* Mũi kim định vị chính xác ở đáy pin - chạm 100% vào tọa độ bản đồ */
+.wp-pin-tip { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 8px solid var(--primary); margin-top: -1px; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.35)); z-index: 1; }
 .wp-pin-tip.turn { border-top-color: #0284c7; }
 .wp-pin-tip.done { border-top-color: var(--ok); }
 .wp-pin-tip.current { border-top-color: var(--warn); }
@@ -215,7 +215,79 @@ a { color: var(--primary); }
 .wp-name-badge { position: absolute; bottom: 33px; left: 50%; transform: translateX(-50%); background: rgba(20, 24, 31, 0.9); color: #fff; font-family: var(--mono); font-size: 10px; font-weight: 700; padding: 1.5px 6px; border-radius: 3px; white-space: nowrap; pointer-events: none; box-shadow: 0 1.5px 5px rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.25); letter-spacing: 0.02em; z-index: 50; }
 .wp-name-badge.done { background: var(--ok); color: #fff; border-color: rgba(255,255,255,0.4); box-shadow: 0 1.5px 6px rgba(21,122,58,0.4); }
 .wp-name-badge.current { background: var(--warn); color: #fff; border-color: rgba(255,255,255,0.4); box-shadow: 0 1.5px 6px rgba(178,94,0,0.4); }
-.wp-name-badge.turn { background: #0284c7; color: #fff; border-color: rgba(255,255,255,0.4); }
+.wp-name-badge.turn { background: #0284c7; color: #fff; border-color: rgba(255,255,255,0.4); box-shadow: 0 1.5px 6px rgba(2, 132, 199, 0.4); }
+
+/* Chấm & Pin waypoint lịch sử trên track (màu tím violet nổi bật, có số thứ tự và nhãn tên) */
+.wp-pin-container.history {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.wp-name-badge.history {
+  background: #7c3aed;
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.4);
+  box-shadow: 0 2px 6px rgba(124, 58, 237, 0.4);
+  font-weight: 700;
+  font-size: 10px;
+}
+.wp-name-badge.history.turn {
+  background: #0284c7;
+  box-shadow: 0 2px 6px rgba(2, 132, 199, 0.4);
+}
+.wp-name-badge.history.start {
+  background: #10b981;
+  box-shadow: 0 2px 6px rgba(16, 185, 129, 0.4);
+}
+.wp-name-badge.history.end {
+  background: #ef4444;
+  box-shadow: 0 2px 6px rgba(239, 68, 68, 0.4);
+}
+.wp-hist-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #7c3aed;
+  color: #ffffff;
+  border: 2px solid #ffffff;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.5);
+  transition: transform 0.15s ease;
+}
+.wp-hist-dot.turn {
+  background: #0284c7;
+  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.5);
+}
+.wp-hist-dot.start {
+  background: #10b981;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.5);
+}
+.wp-hist-dot.end {
+  background: #ef4444;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.5);
+}
+.wp-pin-tip.history {
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid #7c3aed;
+  margin-top: -1px;
+}
+.wp-pin-tip.history.turn {
+  border-top-color: #0284c7;
+}
+.wp-pin-tip.history.start {
+  border-top-color: #10b981;
+}
+.wp-pin-tip.history.end {
+  border-top-color: #ef4444;
+}
+
 .veh-icon { width: 30px; height: 30px; transition: transform .35s linear; will-change: transform; }
 .veh-icon svg { width: 100%; height: 100%; filter: drop-shadow(0 1px 2px rgba(0,0,0,.45)); }
 .home-icon { width: 18px; height: 18px; border-radius: 3px; background: #fff; border: 2px solid var(--text); font: 700 10px var(--mono); display: grid; place-items: center; color: var(--text); }
@@ -502,6 +574,11 @@ a { color: var(--primary); }
 @keyframes slideDown {
   from { opacity: 0; transform: translateY(-6px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleUp {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 .camera-stage-container {

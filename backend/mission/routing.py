@@ -42,17 +42,6 @@ def extract_turns_from_osrm(
     targets = list(target_waypoints or [])
     selected: list[dict[str, Any]] = []
 
-    # 1. Điểm xuất phát (nằm trên đường đã vạch tại vị trí đầu tiên)
-    selected.append({
-        "id": 1,
-        "lat": coords[0][0],
-        "lon": coords[0][1],
-        "alt": 0.0,
-        "name": "Xuất phát",
-        "is_turn": False,
-        "is_target": False,
-    })
-
     turn_counter = 1
     legs = route_data.get("legs", [])
 
@@ -75,17 +64,23 @@ def extract_turns_from_osrm(
             best_coord = min(coords, key=lambda c: haversine_m(raw_lat, raw_lon, c[0], c[1]))
             lat, lon = best_coord[0], best_coord[1]
 
-            # Kiểm tra xem có trùng hoặc quá gần điểm trước đó (< 5m) không
-            last = selected[-1]
-            dist_to_last = haversine_m(last["lat"], last["lon"], lat, lon)
+            # Bỏ qua nếu là điểm xuất phát của chặng đầu tiên và trùng vị trí xe
+            if not selected and leg_idx == 0:
+                if haversine_m(coords[0][0], coords[0][1], lat, lon) < 4.0 and m_type != "arrive":
+                    continue
 
-            if dist_to_last < 5.0:
-                # Nếu đây là điểm arrive (đích của leg), cập nhật lại tên thành tên waypoint mục tiêu
-                if m_type == "arrive" and target_for_leg:
-                    target_name = getattr(target_for_leg, "name", "") or f"WP{leg_idx + 1:02d}"
-                    last["name"] = target_name
-                    last["is_target"] = True
-                continue
+            # Kiểm tra xem có trùng hoặc quá gần điểm trước đó (< 5m) không
+            if selected:
+                last = selected[-1]
+                dist_to_last = haversine_m(last["lat"], last["lon"], lat, lon)
+                if dist_to_last < 5.0:
+                    # Nếu đây là điểm arrive (đích của leg), cập nhật lại tên thành tên waypoint mục tiêu
+                    if m_type == "arrive" and target_for_leg:
+                        target_name = getattr(target_for_leg, "name", "") or f"WP{leg_idx + 1:02d}"
+                        last["name"] = target_name
+                        last["is_target"] = True
+                        last["is_turn"] = False
+                    continue
 
             # Xử lý điểm đến của chặng (arrive)
             if m_type == "arrive":
@@ -136,8 +131,19 @@ def extract_turns_from_osrm(
 
     # Đảm bảo điểm kết thúc cuối cùng của lộ trình nằm trong danh sách
     last_coord = coords[-1]
-    last_pt = selected[-1]
-    if haversine_m(last_pt["lat"], last_pt["lon"], last_coord[0], last_coord[1]) >= 8.0:
+    if not selected:
+        final_target = targets[-1] if targets else None
+        final_name = getattr(final_target, "name", "") if final_target else "Đích đến"
+        selected.append({
+            "id": 1,
+            "lat": last_coord[0],
+            "lon": last_coord[1],
+            "alt": getattr(final_target, "altitude", 0.0) if final_target else 0.0,
+            "name": final_name or "Đích đến",
+            "is_turn": False,
+            "is_target": True,
+        })
+    elif haversine_m(selected[-1]["lat"], selected[-1]["lon"], last_coord[0], last_coord[1]) >= 8.0:
         final_target = targets[-1] if targets else None
         final_name = getattr(final_target, "name", "") if final_target else "Đích đến"
         selected.append({
@@ -149,11 +155,33 @@ def extract_turns_from_osrm(
             "is_turn": False,
             "is_target": True,
         })
+    else:
+        # Nếu điểm cuối đã nằm trong phạm vi 8m của last_coord, snap luôn tọa độ về last_coord
+        selected[-1]["lat"] = last_coord[0]
+        selected[-1]["lon"] = last_coord[1]
 
-    for idx, item in enumerate(selected):
+    # Loại bỏ các điểm trùng lặp hoặc quá gần nhau (< 5.0m)
+    deduped: list[dict[str, Any]] = []
+    for pt in selected:
+        if not deduped:
+            deduped.append(pt)
+        else:
+            d = haversine_m(deduped[-1]["lat"], deduped[-1]["lon"], pt["lat"], pt["lon"])
+            if d >= 5.0:
+                deduped.append(pt)
+            else:
+                if pt.get("is_target"):
+                    deduped[-1]["name"] = pt["name"]
+                    deduped[-1]["lat"] = pt["lat"]
+                    deduped[-1]["lon"] = pt["lon"]
+                    deduped[-1]["is_target"] = True
+                    deduped[-1]["is_turn"] = False
+
+    for idx, item in enumerate(deduped):
         item["id"] = idx + 1
+        item["name"] = f"WP{idx + 1:02d}"
 
-    return selected
+    return deduped
 
 
 def extract_turn_points_geometry(
@@ -184,16 +212,7 @@ def extract_turn_points_geometry(
         ]
 
     targets = list(target_waypoints or [])
-    selected: list[dict[str, Any]] = [{
-        "id": 1,
-        "lat": round(route_points[0][0], 7),
-        "lon": round(route_points[0][1], 7),
-        "alt": 0.0,
-        "name": "Xuất phát",
-        "is_turn": False,
-        "is_target": False,
-    }]
-
+    selected: list[dict[str, Any]] = []
     last_pt = route_points[0]
     turn_counter = 1
 
@@ -220,7 +239,7 @@ def extract_turn_points_geometry(
         is_turn = (angle_diff >= min_angle_deg and d_from_last >= min_dist_m)
 
         if matching_target is not None:
-            name = getattr(matching_target, "name", "") or f"Đích {len(selected)}"
+            name = getattr(matching_target, "name", "") or f"Đích {len(selected) + 1}"
             selected.append({
                 "id": len(selected) + 1,
                 "lat": round(curr_pt[0], 7),
@@ -246,7 +265,7 @@ def extract_turn_points_geometry(
 
     # Điểm cuối cùng (đích đến)
     last_route_pt = route_points[-1]
-    if haversine_m(last_pt[0], last_pt[1], last_route_pt[0], last_route_pt[1]) >= 5.0 or len(selected) == 1:
+    if not selected or haversine_m(last_pt[0], last_pt[1], last_route_pt[0], last_route_pt[1]) >= 5.0:
         target_name = getattr(targets[-1], "name", "Đích đến") if targets else "Đích đến"
         selected.append({
             "id": len(selected) + 1,
@@ -257,11 +276,31 @@ def extract_turn_points_geometry(
             "is_turn": False,
             "is_target": True,
         })
+    else:
+        selected[-1]["lat"] = round(last_route_pt[0], 7)
+        selected[-1]["lon"] = round(last_route_pt[1], 7)
 
-    for idx, item in enumerate(selected):
+    # Loại bỏ các điểm trùng lặp hoặc quá gần nhau (< 5.0m)
+    deduped: list[dict[str, Any]] = []
+    for pt in selected:
+        if not deduped:
+            deduped.append(pt)
+        else:
+            d = haversine_m(deduped[-1]["lat"], deduped[-1]["lon"], pt["lat"], pt["lon"])
+            if d >= 5.0:
+                deduped.append(pt)
+            else:
+                if pt.get("is_target"):
+                    deduped[-1]["name"] = pt["name"]
+                    deduped[-1]["lat"] = pt["lat"]
+                    deduped[-1]["lon"] = pt["lon"]
+                    deduped[-1]["is_target"] = True
+
+    for idx, item in enumerate(deduped):
         item["id"] = idx + 1
+        item["name"] = f"WP{idx + 1:02d}"
 
-    return selected
+    return deduped
 
 
 def extract_turn_points(
@@ -275,6 +314,7 @@ def extract_turn_points(
 def calculate_street_route(
     start: tuple[float, float],
     waypoints: list[tuple[float, float]],
+    target_waypoints: Optional[list[Any]] = None,
     timeout: float = 6.0,
 ) -> dict[str, Any]:
     """
@@ -282,11 +322,13 @@ def calculate_street_route(
     start -> waypoint_1 -> waypoint_2 -> ... -> waypoint_N.
     start: (lat, lon) của xe hoặc điểm xuất phát.
     waypoints: danh sách (lat, lon).
+    target_waypoints: danh sách các đối tượng Waypoint gốc của người dùng.
     Trả về dict: {"route": [[lat, lon], ...], "turn_points": [...], "distance_m": float, "duration_s": float, "is_street": bool}
     """
+    targets = target_waypoints if target_waypoints is not None else waypoints
     points = [start] + list(waypoints)
     if len(points) < 2:
-        turn_pts = extract_turn_points_geometry([[p[0], p[1]] for p in points], waypoints)
+        turn_pts = extract_turn_points_geometry([[p[0], p[1]] for p in points], targets)
         return {
             "route": [[p[0], p[1]] for p in points],
             "turn_points": turn_pts,
@@ -310,7 +352,7 @@ def calculate_street_route(
             latlngs = [[round(pt[1], 7), round(pt[0], 7)] for pt in geojson_coords]
             distance_m = round(float(route_data.get("distance", 0.0)), 1)
             duration_s = round(float(route_data.get("duration", 0.0)), 1)
-            turn_points = extract_turns_from_osrm(route_data, waypoints)
+            turn_points = extract_turns_from_osrm(route_data, targets)
             return {
                 "route": latlngs,
                 "turn_points": turn_points,
@@ -327,7 +369,7 @@ def calculate_street_route(
     for a, b in zip(points, points[1:]):
         total_dist += haversine_m(a[0], a[1], b[0], b[1])
     latlngs = [[round(p[0], 7), round(p[1], 7)] for p in points]
-    turn_points = extract_turn_points_geometry(latlngs, waypoints)
+    turn_points = extract_turn_points_geometry(latlngs, targets)
     return {
         "route": latlngs,
         "turn_points": turn_points,

@@ -43,6 +43,19 @@ def connection() -> dict:
     return ok(store.connection_info())
 
 
+@router.get("/ports")
+def list_ports() -> dict:
+    """Liệt kê các cổng serial/COM đang cắm trên máy tính/Raspberry Pi."""
+    ports = []
+    try:
+        import serial.tools.list_ports as lp
+        for p in lp.comports():
+            ports.append({"port": p.device, "description": p.description, "hwid": p.hwid})
+    except Exception:
+        pass
+    return ok(ports)
+
+
 @router.post("/connect")
 async def connect(body: ConnectRequest, user: dict = CurrentUser) -> dict:
     source = body.source or settings.data_source
@@ -53,10 +66,10 @@ async def connect(body: ConnectRequest, user: dict = CurrentUser) -> dict:
     try:
         provider = build_provider(source, settings.uart_port, settings.uart_baudrate)
         await store.set_provider(provider)
+        settings.data_source = source
+        settings.save()
     except Exception as exc:  # noqa: BLE001
         raise fail("CONNECT_FAILED", str(exc), 500)
-    settings.data_source = source
-    settings.save()
     return ok(store.connection_info())
 
 

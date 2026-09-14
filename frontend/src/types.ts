@@ -20,6 +20,7 @@ export interface Waypoint {
   name: string;
   telemetry?: Telemetry;
   reached_at?: number;
+  is_turn?: boolean;
 }
 
 
@@ -61,6 +62,7 @@ export interface Mission {
   id: string;
   name: string;
   waypoints: Waypoint[];
+  user_waypoints?: Waypoint[];
   status: MissionStatus;
   uploaded: boolean;
   current_waypoint: number;
@@ -79,6 +81,7 @@ export interface SavedMission {
   id: string;
   name: string;
   waypoints: Waypoint[];
+  user_waypoints?: Waypoint[];
   created_at: number;
   updated_at: number;
 }
@@ -97,6 +100,9 @@ export interface MissionHistoryEntry {
   battery_start: number;
   battery_end: number;
   track: [number, number][];
+  waypoints?: Waypoint[];
+  user_waypoints?: Waypoint[];
+  route_points?: [number, number][];
 }
 
 export interface EventEntry {

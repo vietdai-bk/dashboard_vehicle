@@ -46,11 +46,15 @@ export function SettingsPage() {
   const connection = useStore((s) => s.connection);
   const [draft, setDraft] = useState<Partial<AppSettings>>({});
   const [system, setSystem] = useState<SystemInfo | null>(null);
+  const [ports, setPorts] = useState<{ port: string; description: string; hwid: string }[]>([]);
   const [saving, setSaving] = useState(false);
   const [logoutAsk, setLogoutAsk] = useState(false);
 
   useEffect(() => {
-    const load = () => api.config.system().then(setSystem).catch(() => undefined);
+    const load = () => {
+      api.config.system().then(setSystem).catch(() => undefined);
+      api.vehicle.ports().then(setPorts).catch(() => undefined);
+    };
     load();
     const t = window.setInterval(load, 5000);
     return () => window.clearInterval(t);
@@ -106,6 +110,23 @@ export function SettingsPage() {
                       onChange={(e) => setDraft({ ...draft, [f.key]: f.type === "number" ? Number(e.target.value) : e.target.value })} />
                   )}
                   {f.hint && <span className="hint">{f.hint}</span>}
+                  {f.key === "uart_port" && ports.length > 0 && (
+                    <div style={{ marginTop: 6, display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                      <span className="muted small" style={{ fontSize: 11 }}>Cổng phát hiện:</span>
+                      {ports.map((p) => (
+                        <button
+                          key={p.port}
+                          type="button"
+                          className={`btn xs ${value("uart_port") === p.port ? "primary" : "ghost"}`}
+                          onClick={() => setDraft({ ...draft, uart_port: p.port })}
+                          title={p.description}
+                          style={{ fontSize: 11, padding: "2px 8px" }}
+                        >
+                          {p.port} ({p.description})
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

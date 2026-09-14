@@ -275,19 +275,22 @@ class MockTelemetryProvider(TelemetryProvider):
 
             # Advance route vertex if following street route points
             if self.state == "RUNNING" and self.route_points and self.route_index < len(self.route_points):
-                if dist <= max(3.0, accept * 0.8):
+                if dist <= max(2.5, accept * 0.8):
                     self.route_index += 1
 
             if current_wp is not None:
                 wp_dist = haversine_m(self.lat, self.lon, current_wp["lat"], current_wp["lon"])
-                wp_threshold = max(accept, 25.0) if self.route_points else accept
-                next_wp_closer = False
-                if self.wp_index + 1 < len(self.waypoints):
+                is_last_wp = (self.wp_index >= len(self.waypoints) - 1)
+                wp_reached = False
+                if wp_dist <= accept:
+                    wp_reached = True
+                elif not is_last_wp and self.wp_index + 1 < len(self.waypoints):
                     next_wp = self.waypoints[self.wp_index + 1]
                     next_dist = haversine_m(self.lat, self.lon, next_wp["lat"], next_wp["lon"])
-                    if next_dist < wp_dist and wp_dist <= 45.0:
-                        next_wp_closer = True
-                if wp_dist <= wp_threshold or next_wp_closer:
+                    if wp_dist <= max(accept, 4.5) and next_dist < wp_dist:
+                        wp_reached = True
+
+                if wp_reached:
                     self.completed += 1
                     self.wp_index += 1
                     self._emit({"type": "log", "level": "INFO",
@@ -296,11 +299,7 @@ class MockTelemetryProvider(TelemetryProvider):
                         self._finish_mission("COMPLETED")
                     else:
                         self._emit_mission(force=True)
-            elif self.state == "RUNNING" and self.route_points and self.route_index >= len(self.route_points):
-                self.completed = len(self.waypoints)
-                self.wp_index = len(self.waypoints)
-                self._finish_mission("COMPLETED")
-                self._emit({"type": "log", "level": "INFO", "message": "All waypoints reached along route"})
+
             elif self.state == "RTL" and dist <= accept:
                 self.state = "ARMED"
                 self.speed_mps = 0.0
