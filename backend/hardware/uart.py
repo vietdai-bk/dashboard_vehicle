@@ -134,6 +134,7 @@ class UARTTelemetryProvider(TelemetryProvider):
                     continue
             try:
                 raw = self._serial.readline()
+                print("stm32 send: %s\r\n", raw)
             except Exception as exc:  # noqa: BLE001 — cáp rút / thiết bị mất
                 log.error("UART read error: %s", exc)
                 self.emit({"type": "log", "level": "ERROR", "message": f"UART disconnected: {exc}"})
@@ -141,14 +142,14 @@ class UARTTelemetryProvider(TelemetryProvider):
                 self._close_serial()
                 continue
 
-            line_str = raw.decode("utf-8", errors="replace").strip()
-            if not line_str:
+            if not raw:
+                # Chờ STM32 gửi dữ liệu tiếp theo
                 continue
 
             try:
                 packet = parse_packet(raw)
             except ProtocolError as exc:
-                log.warning("[UART RAW/ERROR] Chuỗi không đúng định dạng: %s (%s)", line_str, exc)
+                log.debug("UART unparsed line: %s (%s)", raw[:80], exc)
                 continue
 
             if packet is None:
@@ -156,30 +157,7 @@ class UARTTelemetryProvider(TelemetryProvider):
 
             self._last_rx = time.time()
             self._connected = True
-
-            # In log trực tiếp ra terminal Jetson
-            ptype = packet.get("type", "telemetry")
-            if ptype == "telemetry":
-                lat = packet.get("lat", 0.0)
-                lon = packet.get("lon", 0.0)
-                spd = packet.get("speed", 0.0)
-                hdg = packet.get("heading", 0.0)
-                bat = packet.get("battery", 0.0)
-                state = packet.get("state", "IDLE")
-                log.info("[UART RX] [Telemetry] lat=%.6f, lon=%.6f, spd=%.1f km/h, hdg=%.1f°, bat=%.0f%%, state=%s", lat, lon, spd, hdg, bat, state)
-            elif ptype == "sensor":
-                log.info("[UART RX] [Sensor] temp=%.1f°C, hum=%.1f%%, aqi=%s, pm2.5=%s, co2=%s",
-                         packet.get("temperature", 0), packet.get("humidity", 0),
-                         packet.get("aqi", "-"), packet.get("pm25", "-"), packet.get("co2", "-"))
-            elif ptype == "ack":
-                log.info("[UART RX] [ACK] cmd=%s, ok=%s, msg=%s", packet.get("command"), packet.get("ok"), packet.get("message"))
-            elif ptype == "mission":
-                log.info("[UART RX] [Mission] state=%s, wp=%s/%s, progress=%.1f%%",
-                         packet.get("state"), packet.get("current_waypoint"), packet.get("total"),
-                         float(packet.get("progress", 0.0)) * 100)
-            else:
-                log.info("[UART RX] [%s] %s", ptype, line_str)
-
+            log.debug("UART RX: %s", packet)
             if packet.get("type") == "ack":
                 self._resolve_ack(packet)
             self.emit(packet)
@@ -201,7 +179,7 @@ class UARTTelemetryProvider(TelemetryProvider):
             with self._write_lock:
                 self._serial.write(data)
                 self._serial.flush()
-            log.info("[UART TX] Đã gửi lệnh xuống STM32: %s", data.decode("utf-8", errors="replace").strip())
+            log.info("UART sent %s (%d bytes)", command, len(data))
             ack = await asyncio.wait_for(fut, timeout=self.ACK_TIMEOUT_S)
             return CommandResult(bool(ack.get("ok")), str(ack.get("message", "")),
                                  {k: v for k, v in ack.items() if k not in ("type", "command", "ok", "message")})
