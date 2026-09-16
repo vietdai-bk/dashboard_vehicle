@@ -55,13 +55,51 @@ export function CameraPage() {
   const [webcamTrigger, setWebcamTrigger] = useState(0);
   const [isTabVisible, setIsTabVisible] = useState(!document.hidden);
 
+  // Điều khiển bật/tắt camera phần cứng theo trạng thái tab và trang
   useEffect(() => {
     const handleVisChange = () => {
-      setIsTabVisible(!document.hidden);
+      const visible = !document.hidden;
+      setIsTabVisible(visible);
+      if (!visible) {
+        api.camera.stop().catch(() => {});
+      } else if (source === "jetson") {
+        api.camera.start().catch(() => {});
+      }
     };
+
+    const handlePageUnload = () => {
+      if (typeof navigator !== "undefined" && navigator.sendBeacon) {
+        navigator.sendBeacon("/api/camera/stop");
+      }
+    };
+
     document.addEventListener("visibilitychange", handleVisChange);
-    return () => document.removeEventListener("visibilitychange", handleVisChange);
-  }, []);
+    window.addEventListener("pagehide", handlePageUnload);
+    window.addEventListener("beforeunload", handlePageUnload);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisChange);
+      window.removeEventListener("pagehide", handlePageUnload);
+      window.removeEventListener("beforeunload", handlePageUnload);
+    };
+  }, [source]);
+
+  // Kích hoạt camera khi ở nguồn Jetson, tự động tắt khi đổi sang nguồn khác hoặc thoát khỏi trang Camera
+  useEffect(() => {
+    if (source === "jetson" && isTabVisible) {
+      api.camera.start().catch(() => {});
+    } else {
+      api.camera.stop().catch(() => {});
+    }
+
+    return () => {
+      // Cleanup khi người dùng chuyển sang tab khác (Bản đồ, Thông số, Nhiệm vụ...)
+      api.camera.stop().catch(() => {});
+      if (typeof navigator !== "undefined" && navigator.sendBeacon) {
+        navigator.sendBeacon("/api/camera/stop");
+      }
+    };
+  }, [source, isTabVisible]);
 
   // Fetch available camera devices on Jetson and poll status
   useEffect(() => {

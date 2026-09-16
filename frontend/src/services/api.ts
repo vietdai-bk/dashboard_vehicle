@@ -122,5 +122,7 @@ export const api = {
       }>("/api/camera/status"),
     devices: () => get<{ id: string | number; name: string; path: string }[]>("/api/camera/devices"),
     setDevice: (device: string | number) => post<unknown>("/api/camera/device", { device }),
+    start: () => post<unknown>("/api/camera/start"),
+    stop: () => post<unknown>("/api/camera/stop"),
   },
 };

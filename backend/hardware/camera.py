@@ -79,6 +79,7 @@ class CameraStreamer:
         self._active: bool = False
         self._error: str = ""
         self._opened_device: Optional[Union[int, str]] = None
+        self._cap: Any = None
 
     # ------------------------------------------------------------------ devices
     @staticmethod
@@ -150,11 +151,21 @@ class CameraStreamer:
             log.info("[CAMERA] Thread khởi động cho thiết bị %s", self.device)
 
     def stop(self) -> None:
-        self._stop_event.set()
         with self._lock:
+            if not self._active and not (self._thread and self._thread.is_alive()):
+                return
+            self._stop_event.set()
             self._active = False
+            self._client_count = 0
             self._condition.notify_all()
-        if self._thread:
+            cap = self._cap
+            self._cap = None
+        if cap is not None:
+            try:
+                cap.release()
+            except Exception:
+                pass
+        if self._thread and self._thread is not threading.current_thread():
             self._thread.join(timeout=2.0)
             self._thread = None
         log.info("[CAMERA] Thread dừng")
@@ -310,51 +321,68 @@ class CameraStreamer:
         reconnect_delay = 2.0
         encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), self.quality] if cv2 is not None else []
 
-        while not self._stop_event.is_set():
-            if cap is None or not cap.isOpened():
-                cap = self._open_capture()
+        try:
+            while not self._stop_event.is_set():
                 if cap is None or not cap.isOpened():
-                    err_msg = self._error or f"Không mở được camera {self.device}"
-                    placeholder = _generate_fallback_jpeg(err_msg, "Cắm lại webcam USB vào Jetson")
-                    with self._condition:
-                        self._latest_jpeg = placeholder
-                        self._frame_id += 1
-                        self._condition.notify_all()
-                    self._stop_event.wait(reconnect_delay)
+                    cap = self._open_capture()
+                    with self._lock:
+                        self._cap = cap
+                    if cap is None or not cap.isOpened():
+                        err_msg = self._error or f"Không mở được camera {self.device}"
+                        placeholder = _generate_fallback_jpeg(err_msg, "Cắm lại webcam USB vào Jetson")
+                        with self._condition:
+                            self._latest_jpeg = placeholder
+                            self._frame_id += 1
+                            self._condition.notify_all()
+                        self._stop_event.wait(reconnect_delay)
+                        continue
+
+                success, frame = cap.read()
+                if self._stop_event.is_set():
+                    break
+
+                if not success or frame is None or frame.size == 0:
+                    log.warning("Camera read empty frame, reconnecting...")
+                    with self._lock:
+                        if self._cap is cap:
+                            self._cap = None
+                    try:
+                        cap.release()
+                    except Exception:
+                        pass
+                    cap = None
+                    self._stop_event.wait(1.0)
                     continue
 
-            success, frame = cap.read()
-            if not success or frame is None or frame.size == 0:
-                log.warning("Camera read empty frame, reconnecting...")
+                # Nén sang JPEG
+                try:
+                    ret, buffer = cv2.imencode(".jpg", frame, encode_param)
+                    if ret:
+                        jpeg_bytes = buffer.tobytes()
+                        with self._condition:
+                            self._latest_jpeg = jpeg_bytes
+                            self._frame_id += 1
+                            self._last_frame_time = time.time()
+                            self._condition.notify_all()
+                except Exception as exc:
+                    log.error("JPEG encode error: %s", exc)
+
+                # Giới hạn tốc độ khung hình
+                time.sleep(1.0 / max(1, self.fps))
+        finally:
+            with self._lock:
+                c = self._cap
+                self._cap = None
+            if c is not None:
+                try:
+                    c.release()
+                except Exception:
+                    pass
+            if cap is not None and cap is not c:
                 try:
                     cap.release()
                 except Exception:
                     pass
-                cap = None
-                self._stop_event.wait(1.0)
-                continue
-
-            # Nén sang JPEG
-            try:
-                ret, buffer = cv2.imencode(".jpg", frame, encode_param)
-                if ret:
-                    jpeg_bytes = buffer.tobytes()
-                    with self._condition:
-                        self._latest_jpeg = jpeg_bytes
-                        self._frame_id += 1
-                        self._last_frame_time = time.time()
-                        self._condition.notify_all()
-            except Exception as exc:
-                log.error("JPEG encode error: %s", exc)
-
-            # Giới hạn tốc độ khung hình
-            time.sleep(1.0 / max(1, self.fps))
-
-        if cap is not None:
-            try:
-                cap.release()
-            except Exception:
-                pass
 
     # ------------------------------------------------------------------ streaming
     def get_latest_jpeg(self) -> bytes:
@@ -369,38 +397,52 @@ class CameraStreamer:
             self._client_count += 1
             need_start = not self._active
         if need_start:
-            log.info("[CAMERA] Có client mở tab Camera (%d client), bắt đầu kích hoạt camera...", self._client_count)
+            log.info("[CAMERA] Có client mở stream camera (%d client), kích hoạt camera...", self._client_count)
             self.start()
 
     def unregister_client(self) -> None:
         with self._lock:
             self._client_count = max(0, self._client_count - 1)
             remaining = self._client_count
-        if remaining == 0:
+        if remaining == 0 and self._active:
             log.info("[CAMERA] Không còn client xem luồng (đã chuyển tab hoặc đóng web), tự động tắt camera để tiết kiệm băng thông & CPU...")
             threading.Thread(target=self.stop, name="camera-auto-stop", daemon=True).start()
 
-    async def frame_generator(self) -> AsyncGenerator[bytes, None]:
+    async def frame_generator(self, request: Optional[Any] = None) -> AsyncGenerator[bytes, None]:
         """Tạo luồng MJPEG stream cho FastAPI StreamingResponse."""
         self.register_client()
         last_sent_id = -1
         try:
             while True:
+                if self._stop_event.is_set() or not self._active:
+                    break
+                if request is not None and await request.is_disconnected():
+                    log.info("[CAMERA] Client stream đã ngắt kết nối")
+                    break
+
                 jpeg_data = b""
                 loop = asyncio.get_running_loop()
 
                 def wait_for_frame() -> bytes:
                     with self._condition:
-                        if not self._active and self._stop_event.is_set():
+                        if not self._active or self._stop_event.is_set():
                             return b""
                         if self._frame_id != last_sent_id and self._latest_jpeg:
                             return self._latest_jpeg
                         self._condition.wait(timeout=0.3)
-                        return self._latest_jpeg
+                        return self._latest_jpeg if (self._active and not self._stop_event.is_set()) else b""
 
                 jpeg_data = await loop.run_in_executor(None, wait_for_frame)
 
+                if self._stop_event.is_set() or not self._active:
+                    break
+                if request is not None and await request.is_disconnected():
+                    log.info("[CAMERA] Client stream đã ngắt kết nối")
+                    break
+
                 if not jpeg_data:
+                    if not self._active or self._stop_event.is_set():
+                        break
                     jpeg_data = _generate_fallback_jpeg(
                         self._error or "Đang kết nối camera...",
                         f"Thiết bị: {self.device}"

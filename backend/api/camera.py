@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Optional, Union
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -18,10 +18,10 @@ class DeviceSelectRequest(BaseModel):
 
 
 @router.get("/stream")
-async def video_stream() -> StreamingResponse:
+async def video_stream(request: Request) -> StreamingResponse:
     """Trả về luồng video MJPEG từ webcam cắm trên Jetson / máy tính."""
     return StreamingResponse(
-        camera_streamer.frame_generator(),
+        camera_streamer.frame_generator(request),
         media_type="multipart/x-mixed-replace; boundary=frame",
         headers={
             "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -29,6 +29,20 @@ async def video_stream() -> StreamingResponse:
             "Expires": "0",
         },
     )
+
+
+@router.post("/start")
+def start_camera() -> dict:
+    """Kích hoạt camera trên Jetson khi vào tab Camera."""
+    camera_streamer.start()
+    return ok(camera_streamer.status())
+
+
+@router.post("/stop")
+def stop_camera() -> dict:
+    """Tắt camera trên Jetson khi rời tab để tiết kiệm băng thông và giải phóng phần cứng."""
+    camera_streamer.stop()
+    return ok(camera_streamer.status())
 
 
 @router.get("/snapshot")
