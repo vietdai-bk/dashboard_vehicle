@@ -299,7 +299,7 @@ class MissionManager:
         wire_wps = self.get_wire_waypoints()
         payload = {
             "waypoints": wire_wps,
-            "route_points": m.route_points,
+            # "route_points": m.route_points,
         }
         result = await provider.send_command("UPLOAD_MISSION", payload)
         if result.ok:
