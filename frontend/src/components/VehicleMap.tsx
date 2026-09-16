@@ -66,13 +66,10 @@ export function isVietnamIslandTerritory(lat: number, lon: number, name?: string
   const n = (name || "").toLowerCase();
   if (n.includes("hoàng sa") || n.includes("hoang sa") || n.includes("paracel")) return "hoang_sa";
   if (n.includes("trường sa") || n.includes("truong sa") || n.includes("spratly")) return "truong_sa";
-  // Tọa độ người dùng đưa vào trong ảnh (WP01: 9.134717, 112.588130 / WP02: 16.077153, 108.148301)
-  if (Math.abs(lat - 16.077153) < 0.005 && Math.abs(lon - 108.148301) < 0.005) return "hoang_sa";
-  if (Math.abs(lat - 9.134717) < 0.005 && Math.abs(lon - 112.588130) < 0.005) return "truong_sa";
-  // Vùng Hoàng Sa ngoài khơi
-  if (lat >= 15.0 && lat <= 17.8 && lon >= 110.5 && lon <= 113.8) return "hoang_sa";
-  // Vùng Trường Sa
-  if (lat >= 6.5 && lat <= 12.8 && lon >= 110.0 && lon <= 118.0) return "truong_sa";
+  // Vùng quần đảo Hoàng Sa ngoài khơi Biển Đông (kinh độ từ 111°E đến 114°E, vĩ độ 15.5°N đến 17.5°N)
+  if (lat >= 15.5 && lat <= 17.5 && lon >= 111.0 && lon <= 114.0) return "hoang_sa";
+  // Vùng quần đảo Trường Sa ngoài khơi Biển Đông (kinh độ từ 111°E đến 117.5°E, vĩ độ 7.0°N đến 12.5°N)
+  if (lat >= 7.0 && lat <= 12.5 && lon >= 111.0 && lon <= 117.5) return "truong_sa";
   return null;
 }
 
@@ -475,14 +472,7 @@ export function VehicleMap({ mission, onMapClick, onWaypointMoved, selectedWaypo
       const icon = L.divIcon({
         className: "wp-marker-wrapper",
         html: `
-          <div class="wp-pin-container ${island ? "has-vn-flag" : ""}">
-            ${island ? `
-              <div class="wp-vn-flag-overlay" title="Chủ quyền Việt Nam - ${islandName}">
-                <div class="wp-vn-mini-flag">
-                  ${VIETNAM_FLAG_SVG}
-                </div>
-              </div>
-            ` : ""}
+          <div class="wp-pin-container">
             <div class="wp-name-badge ${cls}">${islandName ? "🇻🇳 " : ""}${badgeText}</div>
             <div class="wp-icon ${cls}">${i + 1}</div>
             <div class="wp-pin-tip ${cls}"></div>

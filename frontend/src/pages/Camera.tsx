@@ -605,7 +605,7 @@ export function CameraPage() {
               <span className="speed-val mono">{speedKmh}</span>
               <div className="speed-unit">
                 <span>KM/H</span>
-                <small className="mono">{(vehicle.speed ?? 0).toFixed(1)} m/s</small>
+                <small className="mono">{(vehicle.speed ?? 0).toFixed(1)} km/h</small>
               </div>
             </div>
             <div className="hud-item mono small">

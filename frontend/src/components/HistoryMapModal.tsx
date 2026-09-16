@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import type { MissionHistoryEntry, Waypoint } from "../types";
 import { MissionStatusBadge } from "./StatusPill";
 import {
-  VIETNAM_FLAG_SVG,
   VIETNAM_TERRITORIES,
   buildTerritoryIcon,
   buildTerritoryPopupHtml,
@@ -186,14 +185,7 @@ export function HistoryMapModal({ entry, onClose }: Props) {
       const icon = L.divIcon({
         className: "wp-marker-wrapper",
         html: `
-          <div class="wp-pin-container ${island ? "has-vn-flag" : ""}">
-            ${island ? `
-              <div class="wp-vn-flag-overlay" title="Chủ quyền Việt Nam - ${islandName}">
-                <div class="wp-vn-mini-flag">
-                  ${VIETNAM_FLAG_SVG}
-                </div>
-              </div>
-            ` : ""}
+          <div class="wp-pin-container">
             <div class="wp-name-badge done">${islandName ? "🇻🇳 " : ""}${wpName} · AQI ${aqiNum.toFixed(0)}</div>
             <div class="wp-icon done">${idx + 1}</div>
             <div class="wp-pin-tip done"></div>
