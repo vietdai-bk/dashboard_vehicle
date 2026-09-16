@@ -11,7 +11,7 @@ from typing import Any, Optional
 from ..config import DATA_DIR, settings
 from ..core.state import VehicleStateStore, haversine_m
 from ..core.websocket import manager as ws_manager
-from ..hardware.protocol import waypoints_to_wire
+from ..hardware.protocol import encode_command, waypoints_to_wire
 from ..models import (Mission, MissionHistoryEntry, SavedMission, Waypoint, WaypointCreate,
                       WaypointUpdate)
 
@@ -297,10 +297,21 @@ class MissionManager:
         m.upload_message = "Uploading…"
         self._broadcast()
         wire_wps = self.get_wire_waypoints()
-        result = await provider.send_command("UPLOAD_MISSION", {
+        payload = {
             "waypoints": wire_wps,
             "route_points": m.route_points,
-        })
+        }
+        try:
+            raw_bytes = encode_command("UPLOAD_MISSION", payload)
+            print(f"\n================ [UPLOAD_MISSION RAW BYTES CHO STM32] ================", flush=True)
+            print(f"ĐỘ DÀI: {len(raw_bytes)} bytes", flush=True)
+            print(f"CHUỖI TEXT: {raw_bytes.decode('utf-8', errors='replace').strip()}", flush=True)
+            print(f"BYTE ARRAY: {raw_bytes}", flush=True)
+            print(f"=======================================================================\n", flush=True)
+        except Exception as e:
+            print(f"Error encoding raw mission: {e}", flush=True)
+
+        result = await provider.send_command("UPLOAD_MISSION", payload)
         if result.ok:
             m.uploaded = True
             m.status = "UPLOADED"

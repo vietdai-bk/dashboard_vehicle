@@ -176,6 +176,9 @@ class UARTTelemetryProvider(TelemetryProvider):
         self._pending_acks[command] = fut
         try:
             data = encode_command(command, params)
+            print(f"\n[JETSON UART TX -> STM32] ({len(data)} bytes):", flush=True)
+            print(f"RAW STR: {data.decode('utf-8', errors='replace').strip()}", flush=True)
+            print(f"RAW BYTES: {data}\n", flush=True)
             with self._write_lock:
                 self._serial.write(data)
                 self._serial.flush()

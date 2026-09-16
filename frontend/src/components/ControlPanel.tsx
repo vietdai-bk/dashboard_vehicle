@@ -66,24 +66,30 @@ export function ControlPanel({ mission, busy, run }: Props) {
           </div>
           <button className="btn primary block lg" disabled={!!busy || !connected || wps === 0 || active || status === "UPLOADING"}
             onClick={() => {
-              console.group("🚀 [UPLOAD MISSION] Gửi nhiệm vụ xuống xe");
-              console.log("Tên nhiệm vụ:", mission?.name || "(Chưa đặt tên)");
-              console.log("Tổng số điểm Waypoint:", mission?.waypoints.length ?? 0);
-              console.log("Dữ liệu Mission chi tiết:", mission);
-              if (mission?.waypoints && mission.waypoints.length > 0) {
-                console.log("Danh sách tọa độ các Waypoint:");
-                console.table(mission.waypoints.map((wp, idx) => ({
-                  "STT": idx + 1,
-                  "Tên WP": wp.name || `WP${String(idx + 1).padStart(2, "0")}`,
-                  "Vĩ độ (Lat)": wp.latitude,
-                  "Kinh độ (Lon)": wp.longitude,
-                  "Độ cao (Alt m)": wp.altitude,
-                })));
-              }
-              if (mission?.route_points && mission.route_points.length > 0) {
-                console.log("Số điểm lộ trình đường đi (Route Points):", mission.route_points.length);
-              }
+              // Định dạng đúng chuẩn wire packet mà Jetson gửi qua UART cho STM32
+              const wireWaypoints = (mission?.waypoints || []).map((wp) => ({
+                id: wp.id,
+                lat: Number(wp.latitude.toFixed(7)),
+                lon: Number(wp.longitude.toFixed(7)),
+                alt: Number(wp.altitude.toFixed(1)),
+              }));
+              const rawPayloadObject = {
+                command: "UPLOAD_MISSION",
+                waypoints: wireWaypoints,
+                route_points: mission?.route_points ?? [],
+              };
+              const rawJsonString = JSON.stringify(rawPayloadObject) + "\n";
+              const rawBytes = new TextEncoder().encode(rawJsonString);
+              const hexString = Array.from(rawBytes).map((b) => b.toString(16).padStart(2, "0").toUpperCase()).join(" ");
+
+              console.group("📦 [DỮ LIỆU THÔ (RAW) GỬI SANG STM32 QUA UART]");
+              console.log("1. Chuỗi RAW Text (kèm ký tự ngắt dòng '\\n' ở cuối):");
+              console.log(rawJsonString);
+              console.log(`2. Tổng kích thước gói tin: ${rawBytes.length} bytes`);
+              console.log("3. Mảng Byte (Uint8Array) nạp vào buffer UART:", rawBytes);
+              console.log("4. Dạng Hexadecimal (HEX):", hexString);
               console.groupEnd();
+
               void run("UPLOAD", () => api.mission.upload(), "Mission uploaded — vehicle acknowledged");
             }}>
             {status === "UPLOADING" ? "UPLOADING…" : mission?.uploaded ? "UPLOADED ✓ (re-upload)" : "UPLOAD MISSION"}
