@@ -65,7 +65,27 @@ export function ControlPanel({ mission, busy, run }: Props) {
               onClick={() => ask("Disarm vehicle", active ? "Mission is running. It will be STOPPED before disarming." : "Motors will be disabled.", "DISARM", active, () => api.vehicle.disarm(), "Vehicle DISARMED")}>DISARM</button>
           </div>
           <button className="btn primary block lg" disabled={!!busy || !connected || wps === 0 || active || status === "UPLOADING"}
-            onClick={() => run("UPLOAD", () => api.mission.upload(), "Mission uploaded — vehicle acknowledged")}>
+            onClick={() => {
+              console.group("🚀 [UPLOAD MISSION] Gửi nhiệm vụ xuống xe");
+              console.log("Tên nhiệm vụ:", mission?.name || "(Chưa đặt tên)");
+              console.log("Tổng số điểm Waypoint:", mission?.waypoints.length ?? 0);
+              console.log("Dữ liệu Mission chi tiết:", mission);
+              if (mission?.waypoints && mission.waypoints.length > 0) {
+                console.log("Danh sách tọa độ các Waypoint:");
+                console.table(mission.waypoints.map((wp, idx) => ({
+                  "STT": idx + 1,
+                  "Tên WP": wp.name || `WP${String(idx + 1).padStart(2, "0")}`,
+                  "Vĩ độ (Lat)": wp.latitude,
+                  "Kinh độ (Lon)": wp.longitude,
+                  "Độ cao (Alt m)": wp.altitude,
+                })));
+              }
+              if (mission?.route_points && mission.route_points.length > 0) {
+                console.log("Số điểm lộ trình đường đi (Route Points):", mission.route_points.length);
+              }
+              console.groupEnd();
+              void run("UPLOAD", () => api.mission.upload(), "Mission uploaded — vehicle acknowledged");
+            }}>
             {status === "UPLOADING" ? "UPLOADING…" : mission?.uploaded ? "UPLOADED ✓ (re-upload)" : "UPLOAD MISSION"}
           </button>
           <div className="btn-grid">
