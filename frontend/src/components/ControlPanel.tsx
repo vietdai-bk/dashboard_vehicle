@@ -66,29 +66,20 @@ export function ControlPanel({ mission, busy, run }: Props) {
           </div>
           <button className="btn primary block lg" disabled={!!busy || !connected || wps === 0 || active || status === "UPLOADING"}
             onClick={() => {
-              // Định dạng đúng chuẩn wire packet mà Jetson gửi qua UART cho STM32
+              // Dữ liệu thô chính xác gửi sang STM32 qua cổng UART (chuỗi JSON kết thúc bằng \n)
               const wireWaypoints = (mission?.waypoints || []).map((wp) => ({
                 id: wp.id,
                 lat: Number(wp.latitude.toFixed(7)),
                 lon: Number(wp.longitude.toFixed(7)),
                 alt: Number(wp.altitude.toFixed(1)),
               }));
-              const rawPayloadObject = {
+              const rawData = JSON.stringify({
                 command: "UPLOAD_MISSION",
                 waypoints: wireWaypoints,
                 route_points: mission?.route_points ?? [],
-              };
-              const rawJsonString = JSON.stringify(rawPayloadObject) + "\n";
-              const rawBytes = new TextEncoder().encode(rawJsonString);
-              const hexString = Array.from(rawBytes).map((b) => b.toString(16).padStart(2, "0").toUpperCase()).join(" ");
+              }) + "\n";
 
-              console.group("📦 [DỮ LIỆU THÔ (RAW) GỬI SANG STM32 QUA UART]");
-              console.log("1. Chuỗi RAW Text (kèm ký tự ngắt dòng '\\n' ở cuối):");
-              console.log(rawJsonString);
-              console.log(`2. Tổng kích thước gói tin: ${rawBytes.length} bytes`);
-              console.log("3. Mảng Byte (Uint8Array) nạp vào buffer UART:", rawBytes);
-              console.log("4. Dạng Hexadecimal (HEX):", hexString);
-              console.groupEnd();
+              console.log(rawData);
 
               void run("UPLOAD", () => api.mission.upload(), "Mission uploaded — vehicle acknowledged");
             }}>

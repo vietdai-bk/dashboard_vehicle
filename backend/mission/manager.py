@@ -301,16 +301,6 @@ class MissionManager:
             "waypoints": wire_wps,
             "route_points": m.route_points,
         }
-        try:
-            raw_bytes = encode_command("UPLOAD_MISSION", payload)
-            print(f"\n================ [UPLOAD_MISSION RAW BYTES CHO STM32] ================", flush=True)
-            print(f"ĐỘ DÀI: {len(raw_bytes)} bytes", flush=True)
-            print(f"CHUỖI TEXT: {raw_bytes.decode('utf-8', errors='replace').strip()}", flush=True)
-            print(f"BYTE ARRAY: {raw_bytes}", flush=True)
-            print(f"=======================================================================\n", flush=True)
-        except Exception as e:
-            print(f"Error encoding raw mission: {e}", flush=True)
-
         result = await provider.send_command("UPLOAD_MISSION", payload)
         if result.ok:
             m.uploaded = True
