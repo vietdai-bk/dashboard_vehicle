@@ -52,11 +52,8 @@ async def lifespan(app: FastAPI):
         await store.set_provider(build_provider(settings.data_source, settings.uart_port, settings.uart_baudrate))
     except Exception as exc:  # noqa: BLE001 — ví dụ UART không có: server vẫn lên, UI báo DISCONNECTED
         log.error("Data source '%s' failed to start: %s", settings.data_source, exc)
-    try:
-        camera_streamer.start()
-    except Exception as exc:
-        log.warning("Camera streamer startup error: %s", exc)
-    log.info("Vehicle dashboard v%s ready on http://%s:%d", VERSION, settings.server_host, settings.server_port)
+    log.info("Vehicle dashboard v%s ready on http://%s:%d (Camera bật on-demand khi chuyển tab Camera)",
+             VERSION, settings.server_host, settings.server_port)
     yield
     camera_streamer.stop()
     await store.shutdown()

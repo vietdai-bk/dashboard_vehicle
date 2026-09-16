@@ -53,6 +53,15 @@ export function CameraPage() {
   const streamRef = useRef<MediaStream | null>(null);
   const [webcamStream, setWebcamStream] = useState<MediaStream | null>(null);
   const [webcamTrigger, setWebcamTrigger] = useState(0);
+  const [isTabVisible, setIsTabVisible] = useState(!document.hidden);
+
+  useEffect(() => {
+    const handleVisChange = () => {
+      setIsTabVisible(!document.hidden);
+    };
+    document.addEventListener("visibilitychange", handleVisChange);
+    return () => document.removeEventListener("visibilitychange", handleVisChange);
+  }, []);
 
   // Fetch available camera devices on Jetson and poll status
   useEffect(() => {
@@ -487,15 +496,21 @@ export function CameraPage() {
     <div className={`camera-viewport ${isMain ? "main-view" : "pip-view"}`}>
       {source === "jetson" ? (
         <div style={{ position: "relative", width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "#050811", overflow: "hidden" }}>
-          <img
-            key={jetsonRetry}
-            src={`/api/camera/stream?t=${jetsonRetry}`}
-            alt="Live Jetson Camera Feed"
-            className="camera-media"
-            style={{ objectFit: "contain", width: "100%", height: "100%" }}
-            onLoad={() => setJetsonError(false)}
-            onError={() => setJetsonError(true)}
-          />
+          {isTabVisible ? (
+            <img
+              key={jetsonRetry}
+              src={`/api/camera/stream?t=${jetsonRetry}`}
+              alt="Live Jetson Camera Feed"
+              className="camera-media"
+              style={{ objectFit: "contain", width: "100%", height: "100%" }}
+              onLoad={() => setJetsonError(false)}
+              onError={() => setJetsonError(true)}
+            />
+          ) : (
+            <div style={{ color: "var(--text-3)", fontSize: 13, textAlign: "center", padding: 20 }}>
+              Đã tạm dừng nhận luồng video để tiết kiệm băng thông
+            </div>
+          )}
           {jetsonError && (
             <div
               style={{

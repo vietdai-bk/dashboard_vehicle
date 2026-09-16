@@ -367,12 +367,18 @@ class CameraStreamer:
     def register_client(self) -> None:
         with self._lock:
             self._client_count += 1
-            if not self._active:
-                self.start()
+            need_start = not self._active
+        if need_start:
+            log.info("[CAMERA] Có client mở tab Camera (%d client), bắt đầu kích hoạt camera...", self._client_count)
+            self.start()
 
     def unregister_client(self) -> None:
         with self._lock:
             self._client_count = max(0, self._client_count - 1)
+            remaining = self._client_count
+        if remaining == 0:
+            log.info("[CAMERA] Không còn client xem luồng (đã chuyển tab hoặc đóng web), tự động tắt camera để tiết kiệm băng thông & CPU...")
+            threading.Thread(target=self.stop, name="camera-auto-stop", daemon=True).start()
 
     async def frame_generator(self) -> AsyncGenerator[bytes, None]:
         """Tạo luồng MJPEG stream cho FastAPI StreamingResponse."""
