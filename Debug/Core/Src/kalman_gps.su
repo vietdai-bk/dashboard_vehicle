@@ -1,0 +1,3 @@
+../Core/Src/kalman_gps.c:4:6:KalmanGPS_Init	40	static
+../Core/Src/kalman_gps.c:22:6:KalmanGPS_Predict	184	static
+../Core/Src/kalman_gps.c:98:6:KalmanGPS_Update	160	static
