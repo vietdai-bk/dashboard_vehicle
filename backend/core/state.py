@@ -109,6 +109,9 @@ class VehicleStateStore:
             return ConnectionInfo(source="none", connected=False, label="NO SOURCE ● OFFLINE")
         if self.provider.kind == "mock":
             label = "MOCK ● ACTIVE" if self.provider.connected else "MOCK ● STOPPED"
+        elif self.provider.kind == "can":
+            connected = self.provider.connected and self.vehicle.connected
+            label = "CAN ● CONNECTED" if connected else "CAN ● DISCONNECTED"
         else:
             connected = self.provider.connected and self.vehicle.connected
             label = "STM32 ● CONNECTED" if connected else "UART ● DISCONNECTED"
@@ -211,8 +214,14 @@ class VehicleStateStore:
         self.broadcast_vehicle()
 
     def _apply_sensor(self, p: dict[str, Any]) -> None:
-        data = {k: p[k] for k in Telemetry.model_fields if k in p}
-        self.telemetry = Telemetry(**data)
+        # Hợp nhất (merge) dữ liệu cảm biến mới với các cảm biến hiện có
+        # để các frame tách biệt (như CAN 0x555 và 0x556) không xóa lẫn nhau
+        current_data = self.telemetry.model_dump()
+        for k in Telemetry.model_fields:
+            if k in p and p[k] is not None:
+                current_data[k] = p[k]
+        current_data["timestamp"] = time.time()
+        self.telemetry = Telemetry(**current_data)
         now = self.telemetry.timestamp
         if now - self._last_sensor_sample >= 1.0:
             self._last_sensor_sample = now

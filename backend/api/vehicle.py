@@ -17,9 +17,11 @@ router = APIRouter(prefix="/api/vehicle", tags=["vehicle"])
 
 
 class ConnectRequest(BaseModel):
-    source: Optional[str] = None      # mock | uart
+    source: Optional[str] = None      # mock | uart | can
     port: Optional[str] = None
     baudrate: Optional[int] = None
+    channel: Optional[str] = None
+    bitrate: Optional[int] = None
 
 
 def build_provider(source: str, port: Optional[str] = None, baudrate: Optional[int] = None) -> TelemetryProvider:
@@ -30,7 +32,10 @@ def build_provider(source: str, port: Optional[str] = None, baudrate: Optional[i
     if source == "uart":
         from ..hardware.uart import UARTTelemetryProvider
         return UARTTelemetryProvider(port, baudrate)
-    raise ValueError(f"Unknown DATA_SOURCE '{source}' (expected mock|uart)")
+    if source == "can":
+        from ..hardware.can import CANTelemetryProvider
+        return CANTelemetryProvider(channel=settings.can_channel, bitrate=settings.can_bitrate)
+    raise ValueError(f"Unknown DATA_SOURCE '{source}' (expected mock|uart|can)")
 
 
 @router.get("/state")
@@ -63,6 +68,10 @@ async def connect(body: ConnectRequest, user: dict = CurrentUser) -> dict:
         settings.uart_port = body.port
     if body.baudrate:
         settings.uart_baudrate = body.baudrate
+    if body.channel:
+        settings.can_channel = body.channel
+    if body.bitrate:
+        settings.can_bitrate = body.bitrate
     try:
         provider = build_provider(source, settings.uart_port, settings.uart_baudrate)
         await store.set_provider(provider)

@@ -135,6 +135,9 @@ export interface AppSettings {
   uart_port: string;
   uart_baudrate: number;
   uart_timeout_s: number;
+  can_channel: string;
+  can_bitrate: number;
+  can_enabled: boolean;
   server_host: string;
   server_port: number;
   log_level: string;

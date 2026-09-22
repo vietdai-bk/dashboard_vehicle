@@ -52,9 +52,26 @@ async def lifespan(app: FastAPI):
         await store.set_provider(build_provider(settings.data_source, settings.uart_port, settings.uart_baudrate))
     except Exception as exc:  # noqa: BLE001 — ví dụ UART không có: server vẫn lên, UI báo DISCONNECTED
         log.error("Data source '%s' failed to start: %s", settings.data_source, exc)
+
+    can_listener = None
+    if settings.can_enabled and settings.data_source != "can":
+        try:
+            from backend.hardware.can import CANReceiver
+            can_listener = CANReceiver(
+                channel=settings.can_channel,
+                bitrate=settings.can_bitrate,
+                on_packet=store.apply_packet,
+            )
+            can_listener.start()
+            log.info("Background CAN sensor receiver active on %s @ %d bps", settings.can_channel, settings.can_bitrate)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Could not start background CAN receiver: %s", exc)
+
     log.info("Vehicle dashboard v%s ready on http://%s:%d (Camera bật on-demand khi chuyển tab Camera)",
              VERSION, settings.server_host, settings.server_port)
     yield
+    if can_listener:
+        can_listener.stop()
     camera_streamer.stop()
     await store.shutdown()
 

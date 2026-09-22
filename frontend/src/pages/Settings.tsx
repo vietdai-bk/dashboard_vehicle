@@ -13,10 +13,13 @@ type Field = { key: keyof AppSettings; label: string; type?: "number" | "text" |
 
 const SECTIONS: { title: string; fields: Field[] }[] = [
   { title: "CONNECTION", fields: [
-    { key: "data_source", label: "Data source", type: "select", options: ["mock", "uart"], hint: "mock = simulated STM32; uart = real STM32 via PySerial" },
+    { key: "data_source", label: "Data source", type: "select", options: ["mock", "uart", "can"], hint: "mock = giả lập; uart = STM32 qua Serial; can = CAN bus MCP2515" },
     { key: "uart_port", label: "UART port", hint: "/dev/ttyUSB0, /dev/ttyAMA0, /dev/serial0…" },
-    { key: "uart_baudrate", label: "Baud rate", type: "number" },
+    { key: "uart_baudrate", label: "UART Baud rate", type: "number" },
     { key: "uart_timeout_s", label: "Link timeout (s)", type: "number", step: 0.5, hint: "No packet for this long ⇒ DISCONNECTED + alert" },
+    { key: "can_enabled", label: "Enable CAN Sensor Listener", type: "bool", hint: "Lắng nghe CAN bus song song để nhận cảm biến từ ESP32" },
+    { key: "can_channel", label: "CAN Interface", hint: "can0 (mặc định cho MCP2515 SocketCAN)" },
+    { key: "can_bitrate", label: "CAN Bitrate (bps)", type: "number", hint: "500000, 250000, 125000" },
     { key: "telemetry_rate_hz", label: "Telemetry rate (Hz)", type: "number", step: 0.5 },
   ] },
   { title: "VEHICLE & SAFETY", fields: [

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+import struct
 from typing import Any, Optional, Union
 
 log = logging.getLogger("protocol")
@@ -69,10 +70,10 @@ def _normalize_keys(packet: dict[str, Any]) -> dict[str, Any]:
         "humidity": "humidity", "hum": "humidity", "HUM": "humidity",
         "aqi": "aqi", "AQI": "aqi",
         "pm25": "pm25", "PM25": "pm25", "PM2.5": "pm25",
-        "co2": "co2", "CO2": "co2",
+        "co2": "co2", "CO2": "co2", "eco2": "co2", "ECO2": "co2", "eCO2": "co2",
         "co": "co", "CO": "co",
         "tvoc": "tvoc", "TVOC": "tvoc",
-        "nox": "nox", "NOX": "nox",
+        "nox": "nox", "NOX": "nox", "no2": "nox", "NO2": "nox", "No2": "nox",
         "state": "state", "STATE": "state",
         "armed": "armed", "ARMED": "armed",
     }
@@ -226,3 +227,46 @@ def waypoints_to_wire(waypoints: list[Any]) -> list[dict[str, Any]]:
     """Rút gọn waypoint về dạng STM32 dễ đọc (id, lat, lon, alt)."""
     return [{"id": wp.id, "lat": round(wp.latitude, 7), "lon": round(wp.longitude, 7),
              "alt": round(wp.altitude, 1)} for wp in waypoints]
+
+
+def decode_can_frame(can_id: int, data: bytes) -> Optional[dict[str, Any]]:
+    """Giải mã khung dữ liệu CAN bus từ ESP32 / MCP2515.
+
+    Frame 1: 0x555 (8 bytes) -> Temp (int16*100), Hum (uint16*100), TVOC (uint16), eCO2 (uint16)
+    Frame 2: 0x556 (8 bytes) -> CO (uint16*10), NO2 (uint16*10), PM2.5 (uint16*100), AQI (uint8), reserved
+    """
+    if not isinstance(data, (bytes, bytearray)):
+        raise ProtocolError("CAN data phải là bytes hoặc bytearray")
+
+    if can_id == 0x555:
+        if len(data) < 8:
+            raise ProtocolError(f"Frame 0x555 yêu cầu 8 bytes, nhận {len(data)}")
+        # tempData (signed int16, big-endian), humData (uint16), tvoc (uint16), eco2 (uint16)
+        temp_raw, hum_raw, tvoc, eco2 = struct.unpack(">hHHH", data[:8])
+        packet = {
+            "type": "sensor",
+            "temperature": round(temp_raw / 100.0, 2),
+            "humidity": round(hum_raw / 100.0, 1),
+            "tvoc": float(tvoc),
+            "co2": float(eco2),
+        }
+        _check_ranges(packet, _SENSOR_RANGES)
+        return packet
+
+    if can_id == 0x556:
+        if len(data) < 7:
+            raise ProtocolError(f"Frame 0x556 yêu cầu tối thiểu 7 bytes, nhận {len(data)}")
+        # coData (uint16*10, big-endian), no2Data (uint16*10), pmData (uint16*100), aqi (uint8)
+        co_raw, no2_raw, pm_raw, aqi = struct.unpack(">HHHB", data[:7])
+        packet = {
+            "type": "sensor",
+            "co": round(co_raw / 10.0, 2),
+            "nox": round(no2_raw / 10.0, 2),
+            "pm25": round(pm_raw / 100.0, 2),
+            "aqi": float(aqi),
+        }
+        _check_ranges(packet, _SENSOR_RANGES)
+        return packet
+
+    return None
+

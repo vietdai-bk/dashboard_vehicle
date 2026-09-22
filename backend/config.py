@@ -55,10 +55,13 @@ def _env(key: str, default: Any) -> Any:
 @dataclass
 class Settings:
     # --- kết nối ---
-    data_source: str = _env("DATA_SOURCE", "mock")            # mock | uart
+    data_source: str = _env("DATA_SOURCE", "mock")            # mock | uart | can
     uart_port: str = _env("UART_PORT", "/dev/ttyUSB0")
     uart_baudrate: int = _env("UART_BAUDRATE", 115200)
     uart_timeout_s: float = _env("UART_TIMEOUT", 3.0)         # không có packet quá lâu => DISCONNECTED
+    can_channel: str = _env("CAN_CHANNEL", "can0")            # SocketCAN channel (MCP2515)
+    can_bitrate: int = _env("CAN_BITRATE", 500000)            # 500kbps, 250kbps, 125kbps...
+    can_enabled: bool = _env("CAN_ENABLED", True)             # Cho phép nhận CAN cảm biến song song
     # --- server ---
     server_host: str = _env("SERVER_HOST", "0.0.0.0")
     server_port: int = int(os.environ.get("PORT") or _env("SERVER_PORT", 8000))
