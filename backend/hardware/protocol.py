@@ -178,6 +178,10 @@ def parse_packet(line: Union[str, bytes]) -> Optional[dict[str, Any]]:
         if kv and len(kv) >= 2:
             packet = _normalize_keys(kv)
 
+    # 4. Fallback: thử parse chuỗi log CAN (candump, SLCAN t555/t556, raw hex)
+    if packet is None and any(k in line for k in ("555", "556", "CAN", "can", "t55")):
+        packet = parse_can_line(line)
+
     if packet is None:
         raise ProtocolError(f"Dữ liệu không nhận diện được: {line[:80]!r}")
 
@@ -269,4 +273,51 @@ def decode_can_frame(can_id: int, data: bytes) -> Optional[dict[str, Any]]:
         return packet
 
     return None
+
+
+def parse_can_line(line: str) -> Optional[dict[str, Any]]:
+    """Phát hiện và giải mã dòng text chứa CAN frame (candump, SLCAN hoặc log CAN)."""
+    import re
+    line = line.strip()
+    if not line:
+        return None
+
+    # 1. Định dạng SLCAN: t55580B221982009601A4 hoặc t5568...
+    m_slcan = re.match(r"^t(55[56])([0-8])([0-9A-Fa-f]+)", line)
+    if m_slcan:
+        cid = int(m_slcan.group(1), 16)
+        dlc = int(m_slcan.group(2))
+        hex_payload = m_slcan.group(3)[: dlc * 2]
+        try:
+            data = bytes.fromhex(hex_payload)
+            return decode_can_frame(cid, data)
+        except (ValueError, ProtocolError):
+            pass
+
+    # 2. Định dạng candump chuẩn: 'can0  555   [8]  0B 22 19 82 00 96 01 A4'
+    m_candump = re.search(r"\b(55[56]|0x55[56])\b.*?\[\s*(\d)\s*\].*?([0-9A-Fa-f]{2}(?:\s+[0-9A-Fa-f]{2})+)", line)
+    if m_candump:
+        cid_str = m_candump.group(1)
+        cid = int(cid_str, 16)
+        hex_parts = m_candump.group(3).split()
+        try:
+            data = bytes([int(h, 16) for h in hex_parts])
+            return decode_can_frame(cid, data)
+        except (ValueError, ProtocolError):
+            pass
+
+    # 3. Định dạng log tùy ý: 'CAN: 0x555: 0B 22 19 82 ...'
+    m_raw = re.search(r"(?:CAN.*?)?(0x55[56]|55[56])\s*[:\s-]\s*([0-9A-Fa-f\s,]+)", line, re.IGNORECASE)
+    if m_raw:
+        cid_str = m_raw.group(1)
+        cid = int(cid_str, 16)
+        raw_hex = re.findall(r"[0-9A-Fa-f]{2}", m_raw.group(2))
+        if len(raw_hex) >= 7:
+            try:
+                data = bytes([int(h, 16) for h in raw_hex])
+                return decode_can_frame(cid, data)
+            except (ValueError, ProtocolError):
+                pass
+    return None
+
 
