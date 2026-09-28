@@ -741,7 +741,7 @@ export function VehicleMap({ mission, onMapClick, onWaypointMoved, selectedWaypo
           </div>
           <div className="row" style={{ gap: 6 }}>
             <button
-              className={`btn sm ${isRoutingActive ? "warn active" : "primary"}`}
+              className={`btn sm btn-route ${isRoutingActive ? "active" : ""}`}
               onClick={() => void handleToggleStreetRoute()}
               disabled={routing || (mission?.waypoints?.length ?? 0) === 0}
               title={
@@ -788,7 +788,7 @@ export function VehicleMap({ mission, onMapClick, onWaypointMoved, selectedWaypo
           </button>
 
           <button
-            className={`btn sm ${isRoutingActive ? "warn active" : "primary"}`}
+            className={`btn sm btn-route ${isRoutingActive ? "active" : ""}`}
             onClick={() => void handleToggleStreetRoute()}
             disabled={routing || (mission?.waypoints?.length ?? 0) === 0}
             title={

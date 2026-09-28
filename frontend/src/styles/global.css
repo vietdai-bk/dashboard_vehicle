@@ -194,6 +194,67 @@ a { color: var(--primary); }
 .map-toolbar { position: absolute; top: 8px; right: 8px; z-index: 500; display: flex; flex-direction: column; gap: 4px; }
 .map-toolbar .btn { background: var(--surface); box-shadow: var(--shadow); }
 .map-toolbar .btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.map-toolbar .btn.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+.map-toolbar .btn.primary:hover:not(:disabled) { background: #163f76; }
+.map-toolbar .btn.warn { background: var(--warn); color: #fff; border-color: var(--warn); }
+.map-toolbar .btn.warn:hover:not(:disabled) { background: #8f4c00; }
+
+/* Nút Vạch đường nổi bật theo tông xanh kỹ thuật điều khiển (Cockpit Azure) */
+.btn.btn-route,
+.map-toolbar .btn.btn-route,
+.fullmap-header .btn.btn-route {
+  background: #0284c7;
+  border-color: #0284c7;
+  color: #ffffff !important;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(2, 132, 199, 0.35);
+  transition: all 0.15s ease;
+}
+.btn.btn-route svg,
+.map-toolbar .btn.btn-route svg,
+.fullmap-header .btn.btn-route svg {
+  stroke: #ffffff;
+  color: #ffffff;
+}
+.btn.btn-route:hover:not(:disabled),
+.map-toolbar .btn.btn-route:hover:not(:disabled),
+.fullmap-header .btn.btn-route:hover:not(:disabled) {
+  background: #0369a1;
+  border-color: #0369a1;
+  color: #ffffff !important;
+  box-shadow: 0 3px 8px rgba(2, 132, 199, 0.5);
+  transform: translateY(-1px);
+}
+.btn.btn-route.active,
+.map-toolbar .btn.btn-route.active,
+.fullmap-header .btn.btn-route.active {
+  background: #b25e00 !important;
+  border-color: #b25e00 !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 6px rgba(178, 94, 0, 0.35);
+}
+.btn.btn-route.active:hover:not(:disabled),
+.map-toolbar .btn.btn-route.active:hover:not(:disabled),
+.fullmap-header .btn.btn-route.active:hover:not(:disabled) {
+  background: #8f4c00 !important;
+  border-color: #8f4c00 !important;
+}
+.btn.btn-route:disabled,
+.map-toolbar .btn.btn-route:disabled,
+.fullmap-header .btn.btn-route:disabled {
+  background: var(--surface-2) !important;
+  border-color: var(--line) !important;
+  color: var(--text-3) !important;
+  box-shadow: none;
+  opacity: 0.55;
+  transform: none;
+}
+.btn.btn-route:disabled svg,
+.map-toolbar .btn.btn-route:disabled svg,
+.fullmap-header .btn.btn-route:disabled svg {
+  stroke: var(--text-3);
+  color: var(--text-3);
+}
 .map-hint { position: absolute; left: 8px; bottom: 8px; z-index: 500; background: rgba(255,255,255,.92); border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 8px; font-size: 11px; color: var(--text-2); font-family: var(--mono); }
 
 /* Waypoint pin marker with sharp bottom pointer tip pointing exactly to coordinates */
