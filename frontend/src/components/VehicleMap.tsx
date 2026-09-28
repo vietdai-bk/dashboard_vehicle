@@ -262,7 +262,7 @@ export function VehicleMap({ mission, onMapClick, onWaypointMoved, selectedWaypo
   const [isFullMap, setIsFullMap] = useState(false);
   const [layerType, setLayerType] = useState<LayerType>("street");
   const [routing, setRouting] = useState(false);
-  const [autoRoute, setAutoRoute] = useState(true); // Mặc định tự động vạch đường sẵn khi chọn waypoint
+  const [autoRoute, setAutoRoute] = useState(false); // Mặc định không tự vạch đường, chỉ khi người dùng bấm nút mới vạch đường
   const autoRouteTimerRef = useRef<number | null>(null);
   const prevWpsSignatureRef = useRef<string>("");
 
@@ -620,12 +620,13 @@ export function VehicleMap({ mission, onMapClick, onWaypointMoved, selectedWaypo
     }
   };
 
-  // Đảo ngược logic: Mặc định tự động vạch đường sẵn khi thêm waypoint
-  // Khi nhấn nút: Tắt vạch đường (vẽ đường thẳng, xóa các điểm rẽ). Nhấn lại: Bật lại vạch đường.
+  // Logic nút vạch đường: Mặc định KHÔNG tự vạch đường (vẽ đường thẳng)
+  // Chỉ khi người dùng bấm nút "Vạch đường" mới bắt đầu vạch đường theo phố.
+  // Khi nhấn lại "Tắt vạch đường": Xóa vạch đường, trở về đường thẳng.
   const handleToggleStreetRoute = async () => {
     const hasRoute = (mission?.route_points?.length ?? 0) > 0;
     if (autoRoute || hasRoute) {
-      // Đang bật vạch đường -> TẮT vạch đường
+      // Đang bật vạch đường -> TẮT vạch đường (quay về đường thẳng giữa các waypoint)
       setAutoRoute(false);
       prevWpsSignatureRef.current = "";
       try {
@@ -637,7 +638,7 @@ export function VehicleMap({ mission, onMapClick, onWaypointMoved, selectedWaypo
           layers.current.route.setStyle({ opacity: 0.85, dashArray: "5 5" });
           layers.current.route.setLatLngs(cleanWps.map((w) => [w.latitude, w.longitude] as [number, number]));
         }
-        toast("info", "Đã tắt vạch đường phố (vẽ đường thẳng, xóa các điểm rẽ)");
+        toast("info", "Đã tắt vạch đường (vẽ đường thẳng, xóa các điểm rẽ)");
       } catch (err) {
         console.error(err);
         // Fallback dọn dẹp tại frontend nếu server bận
@@ -656,14 +657,22 @@ export function VehicleMap({ mission, onMapClick, onWaypointMoved, selectedWaypo
         });
       }
     } else {
-      // Đang tắt vạch đường -> BẬT LẠI vạch đường
+      // Đang tắt vạch đường -> BẬT VẠCH ĐƯỜNG THEO PHỐ KHI BẤM NÚT
       setAutoRoute(true);
       prevWpsSignatureRef.current = "";
       void handleCalculateStreetRoute(false);
     }
   };
 
-  // Tự động vạch đường khi thêm/sửa waypoint nếu autoRoute = true
+  // Reset autoRoute về false khi danh sách waypoint bị xóa hết
+  useEffect(() => {
+    if ((mission?.waypoints?.length ?? 0) === 0) {
+      setAutoRoute(false);
+      prevWpsSignatureRef.current = "";
+    }
+  }, [mission?.waypoints?.length]);
+
+  // Tự động vạch đường khi thêm/sửa waypoint nếu autoRoute = true (sau khi người dùng đã bấm Vạch đường)
   useEffect(() => {
     if (!autoRoute || !editable) return;
     const currentMission = getState().mission ?? mission;
@@ -732,13 +741,13 @@ export function VehicleMap({ mission, onMapClick, onWaypointMoved, selectedWaypo
           </div>
           <div className="row" style={{ gap: 6 }}>
             <button
-              className={`btn sm ${isRoutingActive ? "warn active" : ""}`}
+              className={`btn sm ${isRoutingActive ? "warn active" : "primary"}`}
               onClick={() => void handleToggleStreetRoute()}
               disabled={routing || (mission?.waypoints?.length ?? 0) === 0}
               title={
                 isRoutingActive
-                  ? "Đang vạch đường sẵn. Nhấn để TẮT vạch đường (không vạch đường nữa)"
-                  : "Đang tắt vạch đường. Nhấn để BẬT lại chế độ vạch đường theo phố"
+                  ? "Đang bật vạch đường theo phố. Nhấn để TẮT (quay lại đường thẳng)"
+                  : "Nhấn để vạch đường theo phố (tự động uốn theo đường và thêm điểm rẽ)"
               }
             >
               <IconRoute width={14} height={14} />{" "}
@@ -779,13 +788,13 @@ export function VehicleMap({ mission, onMapClick, onWaypointMoved, selectedWaypo
           </button>
 
           <button
-            className={`btn sm ${isRoutingActive ? "warn active" : ""}`}
+            className={`btn sm ${isRoutingActive ? "warn active" : "primary"}`}
             onClick={() => void handleToggleStreetRoute()}
             disabled={routing || (mission?.waypoints?.length ?? 0) === 0}
             title={
               isRoutingActive
-                ? "Đang vạch đường sẵn. Nhấn để TẮT vạch đường (không vạch đường nữa)"
-                : "Đang tắt vạch đường. Nhấn để BẬT lại chế độ vạch đường theo phố"
+                ? "Đang bật vạch đường theo phố. Nhấn để TẮT (quay lại đường thẳng)"
+                : "Nhấn để vạch đường theo phố (tự động uốn theo đường và thêm điểm rẽ)"
             }
           >
             <IconRoute width={14} height={14} />{" "}
