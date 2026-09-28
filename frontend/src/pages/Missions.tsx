@@ -164,6 +164,9 @@ export function MissionsPage() {
                                       <div>Độ ẩm: <b style={{ color: "var(--text)" }}>{(t?.humidity ?? 68).toFixed(1)} %</b></div>
                                       <div>Thời gian: <b style={{ color: "var(--text)" }}>{reachedStr || "Đã qua"}</b></div>
                                     </div>
+                                    <div style={{ marginTop: 6, fontSize: 10.5, color: badge.fg, background: badge.bg, padding: "3px 6px", borderRadius: 3, border: `1px solid ${badge.border}`, lineHeight: 1.35 }}>
+                                      🛡️ <b>Khuyến nghị:</b> {badge.recommendation}
+                                    </div>
                                     <div style={{ fontSize: 10.5, color: "var(--text-3)", marginTop: 4, fontFamily: "var(--mono)" }}>
                                       Vị trí: {wp.latitude.toFixed(5)}, {wp.longitude.toFixed(5)}
                                     </div>

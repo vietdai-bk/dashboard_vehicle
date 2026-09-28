@@ -91,8 +91,8 @@ class TestCANProtocol(unittest.TestCase):
         # Frame 2 đã cập nhật
         self.assertEqual(store.telemetry.co, 1.5)
         self.assertEqual(store.telemetry.nox, 3.0)
-        self.assertEqual(store.telemetry.pm25, 25.0)
-        self.assertEqual(store.telemetry.aqi, 35.0)
+        # AQI được tính toán tổng hợp từ PM2.5, CO, NOx, CO2, TVOC (PM2.5=25 µg/m³ => AQI = 78)
+        self.assertEqual(store.telemetry.aqi, 78.0)
 
         # Các giá trị từ Frame 1 VẪN ĐƯỢC GIỮ NGUYÊN (không bị reset về 0)
         self.assertEqual(store.telemetry.temperature, 29.5)

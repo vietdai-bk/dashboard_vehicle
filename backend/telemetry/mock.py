@@ -352,7 +352,7 @@ class MockTelemetryProvider(TelemetryProvider):
 
     def _emit_sensor(self) -> None:
         t = self._t
-        self._emit({
+        data = {
             "type": "sensor",
             "temperature": round(28.0 + 1.5 * math.sin(t / 60) + random.gauss(0, 0.05), 2),
             "humidity": round(70.0 + 4 * math.sin(t / 90 + 1) + random.gauss(0, 0.2), 1),
@@ -361,8 +361,10 @@ class MockTelemetryProvider(TelemetryProvider):
             "pm25": round(max(0, 18 + 5 * math.sin(t / 70) + random.gauss(0, 0.5)), 1),
             "tvoc": round(max(0, 120 + 15 * math.sin(t / 50) + random.gauss(0, 5)), 0),
             "nox": round(max(0, 45 + 10 * math.sin(t / 60) + random.gauss(0, 2)), 0),
-            "aqi": round(max(0, 55 + 10 * math.sin(t / 100) + random.gauss(0, 1)), 0),
-        })
+        }
+        from .aqi import calculate_composite_aqi
+        data["aqi"] = calculate_composite_aqi(data)
+        self._emit(data)
 
     def _emit_mission(self, force: bool = False) -> None:
         self._last_mission_emit = self._t

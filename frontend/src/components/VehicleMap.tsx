@@ -17,14 +17,20 @@ interface Props {
   showToolbar?: boolean;
 }
 
+import { getAqiInfo } from "../utils/aqi";
+
 type LayerType = "street" | "satellite" | "hybrid";
 
 export function getAqiBadge(aqi: number) {
-  if (aqi <= 50) return { label: "Tốt", bg: "#dcfce7", fg: "#15803d" };
-  if (aqi <= 100) return { label: "Trung bình", bg: "#fef9c3", fg: "#a16207" };
-  if (aqi <= 150) return { label: "Kém", bg: "#ffedd5", fg: "#c2410c" };
-  if (aqi <= 200) return { label: "Xấu", bg: "#fee2e2", fg: "#b91c1c" };
-  return { label: "Nguy hại", bg: "#f3e8ff", fg: "#7e22ce" };
+  const info = getAqiInfo(aqi);
+  return {
+    label: info.label,
+    colorName: info.colorName,
+    bg: info.bg,
+    fg: info.fg,
+    border: info.border,
+    recommendation: info.recommendation,
+  };
 }
 
 export const VIETNAM_FLAG_SVG = `
@@ -150,6 +156,9 @@ export function buildWaypointPopupHtml(wp: Waypoint, index: number, isPassed: bo
         <div class="wp-popup-aqi" style="background:${badge.bg};color:${badge.fg};display:flex;justify-content:space-between;align-items:center;padding:7px 10px;border-radius:4px;font-weight:700;font-size:12.5px;">
           <span>CHỈ SỐ AQI</span>
           <span>${aqi.toFixed(0)} · ${badge.label}</span>
+        </div>
+        <div style="background:${badge.bg};color:${badge.fg};border:1px solid ${badge.border};border-radius:4px;padding:6px 9px;margin:6px 0;font-size:11px;line-height:1.35;">
+          🛡️ <b>Khuyến nghị:</b> ${badge.recommendation}
         </div>
         <div class="wp-metrics-grid">
           <div class="wp-metric-item">

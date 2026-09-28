@@ -222,6 +222,11 @@ class VehicleStateStore:
             if k in p and p[k] is not None:
                 current_data[k] = p[k]
         current_data["timestamp"] = time.time()
+
+        # Tính toán lại chỉ số AQI tổng hợp kết hợp PM2.5, CO, NOx, CO2 và TVOC
+        from ..telemetry.aqi import calculate_composite_aqi
+        current_data["aqi"] = calculate_composite_aqi(current_data)
+
         self.telemetry = Telemetry(**current_data)
         now = self.telemetry.timestamp
         if now - self._last_sensor_sample >= 1.0:

@@ -7,10 +7,233 @@ import { api } from "../services/api";
 import { setState } from "../stores/store";
 import { SENSORS, type SensorDef, type Telemetry } from "../types";
 
+import { AQI_SCALE, evaluateCompositeAqi, getAqiInfo } from "../utils/aqi";
+
 const RANGES: { label: string; s: number }[] = [
   { label: "1 min", s: 60 }, { label: "5 min", s: 300 }, { label: "15 min", s: 900 }, { label: "1 hour", s: 3600 },
 ];
 const COLORS = ["#1a4d8f", "#157a3a", "#b25e00", "#b42318", "#5b21b6", "#0e7490"];
+
+function AqiAssessmentCard({ telemetry }: { telemetry: Telemetry }) {
+  const [showTable, setShowTable] = useState(false);
+  const evaluation = useMemo(() => evaluateCompositeAqi(telemetry), [telemetry]);
+  const cat = evaluation.category;
+
+  return (
+    <div
+      className="card"
+      style={{
+        border: `1.5px solid ${cat.border}`,
+        background: "var(--surface)",
+        boxShadow: "0 4px 16px rgba(0,0,0,0.06)",
+        overflow: "hidden",
+      }}
+    >
+      <div
+        className="card-h"
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 8,
+          background: cat.bg,
+          color: cat.fg,
+          borderBottom: `1px solid ${cat.border}`,
+          padding: "10px 16px",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 18 }}>🛡️</span>
+          <span style={{ fontWeight: 800, fontSize: 14, letterSpacing: "0.5px" }}>
+            ĐÁNH GIÁ CHẤT LƯỢNG KHÔNG KHÍ TỔNG HỢP (COMPOSITE AQI)
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span
+            style={{
+              background: cat.fg,
+              color: "#fff",
+              padding: "2px 10px",
+              borderRadius: 20,
+              fontSize: 12,
+              fontWeight: 700,
+            }}
+          >
+            {cat.label} ({cat.colorName})
+          </span>
+          <button
+            type="button"
+            className="btn xs"
+            onClick={() => setShowTable((v) => !v)}
+            style={{ fontSize: 11, padding: "3px 8px", background: "rgba(255,255,255,0.85)", color: cat.fg, fontWeight: 700 }}
+          >
+            {showTable ? "▲ Thu gọn bảng chuẩn" : "▼ Xem thang AQI chuẩn"}
+          </button>
+        </div>
+      </div>
+
+      <div className="card-b" style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 12 }}>
+        {/* Hàng chỉ số chính & Khuyến nghị */}
+        <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 16, alignItems: "stretch" }}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              background: cat.bg,
+              color: cat.fg,
+              border: `2px solid ${cat.border}`,
+              borderRadius: "var(--radius)",
+              padding: "12px 22px",
+              minWidth: 130,
+            }}
+          >
+            <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>CHỈ SỐ AQI</span>
+            <span style={{ fontSize: 38, fontWeight: 900, lineHeight: 1, margin: "4px 0" }}>{evaluation.aqi.toFixed(0)}</span>
+            <span style={{ fontSize: 11.5, fontWeight: 700 }}>{cat.label}</span>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "center",
+              gap: 6,
+              background: "var(--surface-2)",
+              padding: "10px 14px",
+              borderRadius: "var(--radius)",
+              border: "1px solid var(--line)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 12.5, color: "var(--text)" }}>
+              <span>🛡️ KHUYẾN NGHỊ HÀNH ĐỘNG BẢO VỆ SỨC KHỎE:</span>
+            </div>
+            <div style={{ fontSize: 13.5, color: cat.fg, fontWeight: 700, lineHeight: 1.45 }}>
+              {cat.recommendation}
+            </div>
+            {evaluation.primaryPollutant && (
+              <div style={{ fontSize: 11.5, color: "var(--text-2)", marginTop: 2 }}>
+                Tác nhân ô nhiễm chính: <b style={{ color: "var(--text)" }}>{evaluation.primaryPollutant.name}</b> (nồng độ:{" "}
+                <b>{evaluation.primaryPollutant.value} {evaluation.primaryPollutant.unit}</b> → Sub-AQI:{" "}
+                <b style={{ color: cat.fg }}>{evaluation.primaryPollutant.subIndex}</b>)
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Thanh trực quan 6 mức độ */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <div style={{ display: "flex", height: 10, borderRadius: 5, overflow: "hidden", border: "1px solid var(--line)" }}>
+            {AQI_SCALE.map((s) => {
+              const active = cat.label === s.label;
+              return (
+                <div
+                  key={s.range}
+                  title={`${s.range}: ${s.label}`}
+                  style={{
+                    flex: 1,
+                    background: s.fg,
+                    opacity: active ? 1 : 0.28,
+                    border: active ? "2px solid #000" : "none",
+                    transform: active ? "scaleY(1.3)" : "none",
+                    transition: "all 0.2s ease",
+                  }}
+                />
+              );
+            })}
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "var(--text-3)", fontFamily: "var(--mono)" }}>
+            <span>0 (Tốt)</span>
+            <span>50</span>
+            <span>100</span>
+            <span>150</span>
+            <span>200</span>
+            <span>300 (Nguy hiểm)</span>
+          </div>
+        </div>
+
+        {/* Bảng phân tích chi tiết các cảm biến thành phần */}
+        <div style={{ borderTop: "1px dashed var(--line)", paddingTop: 10 }}>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--text-2)", marginBottom: 8 }}>
+            THÔNG SỐ ĐÓNG GÓP TỪ CÁC CẢM BIẾN (TÍNH THEO CHUẨN NỘI SUY EPA / VN-AQI):
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 8 }}>
+            {evaluation.pollutants.map((p) => {
+              const pCat = getAqiInfo(p.subIndex);
+              const isPrimary = evaluation.primaryPollutant?.key === p.key;
+              return (
+                <div
+                  key={p.key}
+                  style={{
+                    background: isPrimary ? pCat.bg : "var(--surface-2)",
+                    border: isPrimary ? `1.5px solid ${pCat.fg}` : "1px solid var(--line)",
+                    borderRadius: "var(--radius)",
+                    padding: "6px 10px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 2,
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text)" }}>{p.name}</span>
+                    {isPrimary && (
+                      <span style={{ fontSize: 9.5, padding: "1px 5px", borderRadius: 3, background: pCat.fg, color: "#fff", fontWeight: 700 }}>
+                        CHÍNH
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, fontFamily: "var(--mono)", color: "var(--text)" }}>
+                      {p.value} <span style={{ fontSize: 10, fontWeight: 400, color: "var(--text-2)" }}>{p.unit}</span>
+                    </span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: pCat.fg }}>
+                      AQI {p.subIndex}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Bảng chuẩn khi bấm mở rộng */}
+        {showTable && (
+          <div style={{ borderTop: "1px solid var(--line)", paddingTop: 10, overflowX: "auto" }}>
+            <table className="table" style={{ fontSize: 11.5 }}>
+              <thead>
+                <tr>
+                  <th style={{ width: 95 }}>Khoảng AQI</th>
+                  <th style={{ width: 150 }}>Đánh giá chất lượng</th>
+                  <th>🛡️ Khuyến nghị hành động</th>
+                </tr>
+              </thead>
+              <tbody>
+                {AQI_SCALE.map((s) => {
+                  const isCurrent = cat.label === s.label;
+                  return (
+                    <tr key={s.range} style={{ background: isCurrent ? s.bg : "transparent" }}>
+                      <td style={{ fontWeight: 700, fontFamily: "var(--mono)" }}>{s.range}</td>
+                      <td>
+                        <span style={{ background: s.bg, color: s.fg, padding: "2px 6px", borderRadius: 3, fontWeight: 700 }}>
+                          {s.label} ({s.colorName})
+                        </span>
+                      </td>
+                      <td style={{ color: isCurrent ? s.fg : "inherit", fontWeight: isCurrent ? 700 : 400 }}>
+                        {s.recommendation}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function SensorCard({ def, telemetry, history, stale }: { def: SensorDef; telemetry: Telemetry; history: Telemetry[]; stale: boolean }) {
   const v = telemetry[def.key];
@@ -138,6 +361,7 @@ export function TelemetryPage() {
 
   return (
     <div className="page stack">
+      <AqiAssessmentCard telemetry={telemetry} />
       {groups.map((g) => (
         <section key={g.key} className="stack" style={{ gap: 8 }}>
           <div className="row" style={{ justifyContent: "space-between" }}>
