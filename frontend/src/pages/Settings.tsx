@@ -13,11 +13,11 @@ type Field = { key: keyof AppSettings; label: string; type?: "number" | "text" |
 
 const SECTIONS: { title: string; fields: Field[] }[] = [
   { title: "CONNECTION", fields: [
-    { key: "data_source", label: "Data source", type: "select", options: ["mock", "uart", "can"], hint: "mock = giả lập; uart = STM32 qua Serial; can = CAN bus MCP2515" },
-    { key: "uart_port", label: "UART port", hint: "/dev/ttyUSB0, /dev/ttyAMA0, /dev/serial0…" },
+    { key: "data_source", label: "Data source", type: "select", options: ["uart", "mock"], hint: "uart = STM32 qua Serial (chính); mock = giả lập" },
+    { key: "uart_port", label: "UART port", hint: "/dev/ttyUSB0, /dev/ttyAMA0, /dev/serial0, /dev/ttyTHS1…" },
     { key: "uart_baudrate", label: "UART Baud rate", type: "number" },
     { key: "uart_timeout_s", label: "Link timeout (s)", type: "number", step: 0.5, hint: "No packet for this long ⇒ DISCONNECTED + alert" },
-    { key: "can_enabled", label: "Enable CAN Sensor Listener", type: "bool", hint: "Lắng nghe CAN bus song song để nhận cảm biến từ ESP32" },
+    { key: "can_enabled", label: "Enable CAN Sensor Listener", type: "bool", hint: "Luôn chạy nền đọc MCP2515 SPI để nhận cảm biến từ ESP32" },
     { key: "can_channel", label: "CAN Interface", hint: "can0 (mặc định cho MCP2515 SocketCAN)" },
     { key: "can_bitrate", label: "CAN Bitrate (bps)", type: "number", hint: "500000, 250000, 125000" },
     { key: "telemetry_rate_hz", label: "Telemetry rate (Hz)", type: "number", step: 0.5 },
@@ -64,7 +64,11 @@ export function SettingsPage() {
   }, []);
 
   if (!settings) return <div className="page"><div className="empty">Loading settings…</div></div>;
-  const value = (k: keyof AppSettings) => (k in draft ? draft[k] : settings[k]);
+  const value = (k: keyof AppSettings) => {
+    const v = k in draft ? draft[k] : settings[k];
+    if (k === "data_source" && (v === "can" || !v)) return "uart";
+    return v;
+  };
   const dirty = Object.keys(draft).length > 0;
 
   const save = async () => {
@@ -81,7 +85,9 @@ export function SettingsPage() {
     setSaving(true);
     try {
       if (dirty) { const r = await api.config.update(draft); setState({ settings: r.settings }); setDraft({}); }
-      const c = await api.vehicle.connect(source ?? (value("data_source") as string), value("uart_port") as string, Number(value("uart_baudrate")));
+      const chosenSource = source ?? (value("data_source") as string);
+      const safeSource = chosenSource === "can" ? "uart" : chosenSource;
+      const c = await api.vehicle.connect(safeSource, value("uart_port") as string, Number(value("uart_baudrate")));
       toast("success", `Connected: ${c.label}`);
     } catch (e) { toast("error", describeError(e)); } finally { setSaving(false); }
   };

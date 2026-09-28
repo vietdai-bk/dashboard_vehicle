@@ -54,7 +54,7 @@ async def lifespan(app: FastAPI):
         log.error("Data source '%s' failed to start: %s", settings.data_source, exc)
 
     can_listener = None
-    if settings.can_enabled and settings.data_source != "can":
+    if settings.can_enabled:
         try:
             from backend.hardware.can import CANReceiver
             can_listener = CANReceiver(
@@ -63,6 +63,7 @@ async def lifespan(app: FastAPI):
                 on_packet=store.apply_packet,
             )
             can_listener.start()
+            store.can_receiver = can_listener
             log.info("Background CAN sensor receiver active on %s @ %d bps", settings.can_channel, settings.can_bitrate)
         except Exception as exc:  # noqa: BLE001
             log.warning("Could not start background CAN receiver: %s", exc)

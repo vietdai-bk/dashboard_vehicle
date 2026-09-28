@@ -55,7 +55,7 @@ def _env(key: str, default: Any) -> Any:
 @dataclass
 class Settings:
     # --- kết nối ---
-    data_source: str = _env("DATA_SOURCE", "mock")            # mock | uart | can
+    data_source: str = _env("DATA_SOURCE", "uart")            # uart | mock
     uart_port: str = _env("UART_PORT", "/dev/ttyUSB0")
     uart_baudrate: int = _env("UART_BAUDRATE", 115200)
     uart_timeout_s: float = _env("UART_TIMEOUT", 3.0)         # không có packet quá lâu => DISCONNECTED
@@ -114,6 +114,8 @@ class Settings:
         for key, value in patch.items():
             if key not in self.editable_keys():
                 continue
+            if key == "data_source" and str(value) not in ("uart", "mock"):
+                continue
             current = getattr(self, key)
             try:
                 if isinstance(current, bool):
@@ -142,6 +144,8 @@ class Settings:
         try:
             saved = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
             self.update(saved)
+            if self.data_source not in ("uart", "mock"):
+                self.data_source = "uart"
             log.info("Loaded saved settings from %s", SETTINGS_FILE)
         except (json.JSONDecodeError, ValueError) as exc:
             log.warning("Ignoring corrupt settings file: %s", exc)

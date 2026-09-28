@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/vehicle", tags=["vehicle"])
 
 
 class ConnectRequest(BaseModel):
-    source: Optional[str] = None      # mock | uart | can
+    source: Optional[str] = None      # uart | mock
     port: Optional[str] = None
     baudrate: Optional[int] = None
     channel: Optional[str] = None
@@ -25,17 +25,14 @@ class ConnectRequest(BaseModel):
 
 
 def build_provider(source: str, port: Optional[str] = None, baudrate: Optional[int] = None) -> TelemetryProvider:
-    """Factory: chọn provider theo config. Frontend không biết provider nào đang chạy."""
+    """Factory: chọn provider điều khiển xe theo config (uart hoặc mock)."""
     if source == "mock":
         from ..telemetry.mock import MockTelemetryProvider
         return MockTelemetryProvider()
-    if source == "uart":
+    if source in ("uart", "can"):  # fallback an toàn nếu trước đó lưu 'can'
         from ..hardware.uart import UARTTelemetryProvider
         return UARTTelemetryProvider(port, baudrate)
-    if source == "can":
-        from ..hardware.can import CANTelemetryProvider
-        return CANTelemetryProvider(channel=settings.can_channel, bitrate=settings.can_bitrate)
-    raise ValueError(f"Unknown DATA_SOURCE '{source}' (expected mock|uart|can)")
+    raise ValueError(f"Unknown DATA_SOURCE '{source}' (expected uart|mock)")
 
 
 @router.get("/state")
@@ -64,6 +61,8 @@ def list_ports() -> dict:
 @router.post("/connect")
 async def connect(body: ConnectRequest, user: dict = CurrentUser) -> dict:
     source = body.source or settings.data_source
+    if source not in ("uart", "mock"):
+        source = "uart"
     if body.port:
         settings.uart_port = body.port
     if body.baudrate:

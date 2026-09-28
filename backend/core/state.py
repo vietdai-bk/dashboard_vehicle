@@ -54,6 +54,7 @@ class VehicleStateStore:
         self.telemetry_history: deque[Telemetry] = deque(maxlen=settings.telemetry_history_size)
         self.track: deque[list[float]] = deque(maxlen=settings.track_max_points)
         self.provider: Optional[TelemetryProvider] = None
+        self.can_receiver: Any = None
         self.mission: Optional["MissionManager"] = None
         self.events = EventLog(ws_manager.broadcast_nowait)
         self.alerts = AlertManager(ws_manager.broadcast_nowait, self.events)
@@ -109,31 +110,31 @@ class VehicleStateStore:
             return ConnectionInfo(source="none", connected=False, label="NO SOURCE ● OFFLINE")
         if self.provider.kind == "mock":
             label = "MOCK ● ACTIVE" if self.provider.connected else "MOCK ● STOPPED"
-        elif self.provider.kind == "can":
-            connected = self.provider.connected and self.vehicle.connected
-            label = "CAN ● CONNECTED" if connected else "CAN ● DISCONNECTED"
         else:
             connected = self.provider.connected and self.vehicle.connected
             label = "STM32 ● CONNECTED" if connected else "UART ● DISCONNECTED"
+        detail = self.provider.detail
+        can_rx = getattr(self, "can_receiver", None)
+        if can_rx and getattr(can_rx, "connected", False):
+            detail = f"{detail} | CAN: online" if detail else "CAN: online"
         return ConnectionInfo(source=self.provider.kind, connected=self.vehicle.connected,
-                              label=label, detail=self.provider.detail)
+                              label=label, detail=detail)
 
     # ------------------------------------------------------------------ packets
     def apply_packet(self, packet: dict[str, Any]) -> None:
-        """Điểm vào duy nhất cho mọi dữ liệu từ vehicle. Nhận từ STM32 và cập nhật ngay lên web."""
+        """Điểm vào duy nhất cho mọi dữ liệu từ vehicle (STM32/UART) và cảm biến quan trắc (CAN)."""
         ptype = packet.get("type")
-        now = time.time()
-        self.vehicle.last_update = now
-        if not self.vehicle.connected:
-            self.vehicle.connected = True
-            self._push_connection()
         try:
-            # 1. Cập nhật thông số di chuyển / GPS nếu có
+            # 1. Cập nhật thông số di chuyển / GPS từ vehicle nếu có
             has_tele = ptype == "telemetry" or any(k in packet for k in ("lat", "latitude", "lon", "longitude", "speed", "heading", "state"))
             if has_tele:
+                self.vehicle.last_update = time.time()
+                if not self.vehicle.connected:
+                    self.vehicle.connected = True
+                    self._push_connection()
                 self._apply_telemetry(packet)
 
-            # 2. Cập nhật thông số cảm biến môi trường nếu có
+            # 2. Cập nhật thông số cảm biến môi trường nếu có (từ CAN bus ESP32 hoặc Mock)
             has_sensor = ptype == "sensor" or any(k in packet for k in ("temperature", "humidity", "co2", "aqi", "pm25", "co", "tvoc", "nox"))
             if has_sensor:
                 self._apply_sensor(packet)
