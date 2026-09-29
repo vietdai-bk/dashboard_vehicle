@@ -39,6 +39,10 @@ class MissionManager:
         self.history.sort(key=lambda h: h.started_at)
         self._battery_start = 0.0
         self._distance_start = 0.0
+        self._sampling = False
+        self._sampling_wp_idx = -1
+        self._sampling_start_time = 0.0
+        self._sampling_duration = 60.0        # Dừng 1 phút (60 giây) để lấy mẫu
         store.mission = self
 
     # ------------------------------------------------------------------ persistence
@@ -342,6 +346,15 @@ class MissionManager:
             wp.reached_at = None
         self._battery_start = v.battery
         self._distance_start = v.distance_travelled_m
+        self._sampling = False
+        self._sampling_wp_idx = -1
+        m.sampling = False
+        m.sampling_remaining_s = 0.0
+        m.sampling_message = ""
+        self.store.vehicle.sampling = False
+        self.store.vehicle.sampling_remaining_s = 0.0
+        self.store.vehicle.sampling_message = ""
+        self.store.alerts.clear_alert("SAMPLING")
         self.store.reset_track()
         self.store.events.add("INFO", "mission", f"Mission '{m.name}' started")
         self._broadcast()
@@ -427,6 +440,19 @@ class MissionManager:
             m.progress = max(by_distance, m.completed / total if total else 0.0)
         elif total:
             m.progress = m.completed / total
+        if "sampling" in packet:
+            m.sampling = bool(packet["sampling"])
+            m.sampling_waypoint = int(packet.get("sampling_waypoint", m.current_waypoint))
+            m.sampling_remaining_s = float(packet.get("sampling_remaining_s", 0.0))
+            m.sampling_message = str(packet.get("sampling_message", ""))
+            self.store.vehicle.sampling = m.sampling
+            self.store.vehicle.sampling_remaining_s = m.sampling_remaining_s
+            self.store.vehicle.sampling_message = m.sampling_message
+            if m.sampling:
+                self.store.alerts.raise_alert("SAMPLING", m.sampling_message or "Đang chờ lấy mẫu quan trắc...", level="info")
+            else:
+                self.store.alerts.clear_alert("SAMPLING")
+
         if state == "COMPLETED" and m.status in ("RUNNING", "PAUSED"):
             m.status = "COMPLETED"
             m.progress = 1.0
@@ -452,35 +478,74 @@ class MissionManager:
         if curr_idx < 0 or curr_idx >= total:
             return
         curr_wp = m.waypoints[curr_idx]
+
+        # 1. Nếu xe đang dừng lấy mẫu tại waypoint này
+        if self._sampling and self._sampling_wp_idx == curr_idx:
+            elapsed = time.time() - self._sampling_start_time
+            remaining = max(0.0, self._sampling_duration - elapsed)
+            m.sampling = True
+            m.sampling_waypoint = curr_idx + 1
+            m.sampling_remaining_s = round(remaining, 0)
+            m.sampling_message = f"Đang chờ lấy mẫu tại {curr_wp.name} (còn {int(remaining)}s)..."
+            self.store.vehicle.sampling = True
+            self.store.vehicle.sampling_remaining_s = m.sampling_remaining_s
+            self.store.vehicle.sampling_message = m.sampling_message
+
+            # Thu thập / cập nhật telemetry trong thời gian lấy mẫu
+            tele = self.store.telemetry.model_dump()
+            curr_wp.telemetry = tele
+            curr_wp.reached_at = time.time()
+
+            if remaining <= 0:
+                self._sampling = False
+                m.sampling = False
+                m.sampling_remaining_s = 0.0
+                m.sampling_message = ""
+                self.store.vehicle.sampling = False
+                self.store.vehicle.sampling_remaining_s = 0.0
+                self.store.vehicle.sampling_message = ""
+                self.store.alerts.clear_alert("SAMPLING")
+
+                m.completed = curr_idx + 1
+                self.store.events.add("INFO", "mission", f"Hoàn thành lấy mẫu tại {curr_wp.name}. Xe tiếp tục hành trình ({m.completed}/{total} WP).")
+                if m.completed >= total:
+                    m.status = "COMPLETED"
+                    m.progress = 1.0
+                    self.store.events.add("INFO", "mission", f"Nhiệm vụ '{m.name}' hoàn thành ({m.completed}/{total} waypoints)")
+                    self._finalize("COMPLETED")
+                    self._vehicle_idle()
+                else:
+                    m.current_waypoint = m.completed + 1
+                    m.progress = m.completed / total
+                self._broadcast()
+            else:
+                self._broadcast()
+            return
+
         from ..core.state import haversine_m
         dist = haversine_m(lat, lon, curr_wp.latitude, curr_wp.longitude)
         accept = settings.acceptance_radius_m
         if dist <= max(accept, 4.0):
-            if curr_wp.telemetry is None:
-                tele = self.store.telemetry.model_dump()
-                import random
-                if not tele.get("aqi"):
-                    tele["aqi"] = round(random.uniform(42, 68), 0)
-                    tele["pm25"] = round(random.uniform(14, 25), 1)
-                    tele["co2"] = round(random.uniform(550, 680), 0)
-                    tele["co"] = round(random.uniform(1.8, 3.2), 2)
-                    tele["tvoc"] = round(random.uniform(110, 140), 0)
-                    tele["nox"] = round(random.uniform(35, 50), 0)
-                    tele["temperature"] = round(random.uniform(27.5, 29.5), 1)
-                    tele["humidity"] = round(random.uniform(65, 74), 1)
-                curr_wp.telemetry = tele
-                curr_wp.reached_at = time.time()
-            m.completed = curr_idx + 1
-            self.store.events.add("INFO", "mission", f"Xe đã đến {curr_wp.name} ({m.completed}/{total})")
-            if m.completed >= total:
-                m.status = "COMPLETED"
-                m.progress = 1.0
-                self.store.events.add("INFO", "mission", f"Nhiệm vụ '{m.name}' hoàn thành ({m.completed}/{total} waypoints)")
-                self._finalize("COMPLETED")
-                self._vehicle_idle()
-            else:
-                m.current_waypoint = m.completed + 1
-                m.progress = m.completed / total
+            # Xe vừa tới waypoint -> bắt đầu dừng 1 phút (60s) để lấy mẫu
+            self._sampling = True
+            self._sampling_wp_idx = curr_idx
+            self._sampling_start_time = time.time()
+            self._sampling_duration = 60.0
+            m.sampling = True
+            m.sampling_waypoint = curr_idx + 1
+            m.sampling_remaining_s = 60.0
+            m.sampling_message = f"Đang chờ lấy mẫu tại {curr_wp.name} (còn 60s)..."
+            self.store.vehicle.sampling = True
+            self.store.vehicle.sampling_remaining_s = 60.0
+            self.store.vehicle.sampling_message = m.sampling_message
+
+            # Chụp telemetry ban đầu
+            tele = self.store.telemetry.model_dump()
+            curr_wp.telemetry = tele
+            curr_wp.reached_at = time.time()
+
+            self.store.events.add("INFO", "mission", f"Xe đã đến {curr_wp.name}. Đang dừng 1 phút để lấy mẫu (đang chờ lấy mẫu)...")
+            self.store.alerts.raise_alert("SAMPLING", f"Đang chờ lấy mẫu quan trắc tại {curr_wp.name} (còn 60s)...", level="info")
             self._broadcast()
 
     def _vehicle_idle(self) -> None:
@@ -495,6 +560,15 @@ class MissionManager:
 
     def _finalize(self, status: str) -> None:
         m, v = self.current, self.store.vehicle
+        self._sampling = False
+        self._sampling_wp_idx = -1
+        m.sampling = False
+        m.sampling_remaining_s = 0.0
+        m.sampling_message = ""
+        self.store.vehicle.sampling = False
+        self.store.vehicle.sampling_remaining_s = 0.0
+        self.store.vehicle.sampling_message = ""
+        self.store.alerts.clear_alert("SAMPLING")
         if m.ended_at is not None or m.started_at is None:
             return
         m.ended_at = time.time()

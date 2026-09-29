@@ -64,6 +64,9 @@ class VehicleState(BaseModel):
     home_longitude: float = 0.0
     last_update: float = 0.0
     error_message: str = ""
+    sampling: bool = False
+    sampling_remaining_s: float = 0.0
+    sampling_message: str = ""
 
 
 class Telemetry(BaseModel):
@@ -94,6 +97,10 @@ class Mission(BaseModel):
     ended_at: Optional[float] = None
     upload_message: str = ""
     route_points: List[List[float]] = []
+    sampling: bool = False
+    sampling_waypoint: int = 0
+    sampling_remaining_s: float = 0.0
+    sampling_message: str = ""
 
 
 class SavedMission(BaseModel):

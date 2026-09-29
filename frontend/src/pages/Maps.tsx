@@ -78,6 +78,42 @@ export function MapsPage() {
         <MissionHistory />
       </div>
       <div className="col map-col">
+        {mission?.sampling && (
+          <div
+            className="alert-banner info"
+            style={{
+              background: "rgba(2, 132, 199, 0.12)",
+              border: "1px solid #0284c7",
+              color: "var(--text)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "10px 14px",
+              borderRadius: "var(--radius)",
+              marginBottom: 8,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: "50%",
+                  background: "#0284c7",
+                  display: "inline-block",
+                  boxShadow: "0 0 0 4px rgba(2, 132, 199, 0.3)",
+                }}
+              />
+              <span style={{ fontWeight: 700, color: "#0284c7" }}>ĐANG CHỜ LẤY MẪU QUAN TRẮC:</span>
+              <span>{mission.sampling_message || `Xe đang dừng 1 phút lấy mẫu tại Waypoint #${mission.current_waypoint}...`}</span>
+            </div>
+            {mission.sampling_remaining_s !== undefined && mission.sampling_remaining_s > 0 && (
+              <span className="badge info mono" style={{ fontSize: 13, padding: "3px 10px", fontWeight: 700 }}>
+                Còn {Math.round(mission.sampling_remaining_s)}s
+              </span>
+            )}
+          </div>
+        )}
         {alerts.length > 0 && (
           <div className={`alert-banner ${alerts.some((a) => a.level === "critical") ? "critical" : "warning"}`}>
             {alerts[0]!.message}{alerts.length > 1 && ` (+${alerts.length - 1} more)`}

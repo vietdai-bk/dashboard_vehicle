@@ -453,7 +453,10 @@ export function VehicleMap({ mission, onMapClick, onWaypointMoved, selectedWaypo
     wps.forEach((wp, i) => {
       seen.add(wp.id);
       const isPassed = !!wp.telemetry || (active ? (i + 1 <= (mission?.completed ?? 0) || i + 1 < (mission?.current_waypoint ?? 0)) : (mission?.status === "COMPLETED"));
-      const cls = active
+      const isSamplingThisWp = mission?.sampling && i + 1 === mission?.current_waypoint;
+      const cls = isSamplingThisWp
+        ? "current sampling"
+        : active
         ? (i + 1 < (mission?.current_waypoint ?? 0) ? "done" : i + 1 === mission?.current_waypoint ? "current" : "")
         : mission?.status === "COMPLETED" ? "done" : i === 0 ? "start" : "";
       const aqiNum = wp.telemetry?.aqi ?? (isPassed ? (telemetry?.aqi && telemetry.aqi > 0 ? telemetry.aqi : 58) : undefined);
@@ -464,7 +467,9 @@ export function VehicleMap({ mission, onMapClick, onWaypointMoved, selectedWaypo
       const islandName = island === "hoang_sa" ? "Quần đảo Hoàng Sa" : island === "truong_sa" ? "Quần đảo Trường Sa" : null;
       const islandSub = islandName ? `<div style="color:#da251d;font-weight:800;font-size:11px;margin-top:2px;">🇻🇳 ${islandName} (Việt Nam)</div>` : "";
 
-      const badgeText = isPassed && aqiNum != null
+      const badgeText = isSamplingThisWp
+        ? `WP${String(i + 1).padStart(2, "0")} · ⏳ Đang lấy mẫu (${Math.round(mission?.sampling_remaining_s ?? 60)}s)`
+        : isPassed && aqiNum != null
         ? `WP${String(i + 1).padStart(2, "0")} · AQI ${aqiNum.toFixed(0)}`
         : `WP${String(i + 1).padStart(2, "0")}`;
       const tooltipHtml = isPassed && aqiNum != null

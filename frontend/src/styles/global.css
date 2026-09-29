@@ -277,7 +277,16 @@ a { color: var(--primary); }
 .wp-name-badge { position: absolute; bottom: 33px; left: 50%; transform: translateX(-50%); background: rgba(20, 24, 31, 0.9); color: #fff; font-family: var(--mono); font-size: 10px; font-weight: 700; padding: 1.5px 6px; border-radius: 3px; white-space: nowrap; pointer-events: none; box-shadow: 0 1.5px 5px rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.25); letter-spacing: 0.02em; z-index: 50; }
 .wp-name-badge.done { background: var(--ok); color: #fff; border-color: rgba(255,255,255,0.4); box-shadow: 0 1.5px 6px rgba(21,122,58,0.4); }
 .wp-name-badge.current { background: var(--warn); color: #fff; border-color: rgba(255,255,255,0.4); box-shadow: 0 1.5px 6px rgba(178,94,0,0.4); }
+.wp-name-badge.sampling { background: #0284c7; color: #fff; border-color: rgba(255,255,255,0.6); box-shadow: 0 0 10px rgba(2, 132, 199, 0.7); }
 .wp-name-badge.turn { background: #0284c7; color: #fff; border-color: rgba(255,255,255,0.4); box-shadow: 0 1.5px 6px rgba(2, 132, 199, 0.4); }
+.wp-pin-tip.sampling { border-top-color: #0284c7; }
+.wp-icon.sampling { background: #0284c7; border-color: #fff; box-shadow: 0 0 12px rgba(2, 132, 199, 0.8); animation: pulse-scale 1.5s infinite ease-in-out; }
+
+@keyframes pulse-scale {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.18); box-shadow: 0 0 18px rgba(2, 132, 199, 0.9); }
+  100% { transform: scale(1); }
+}
 
 /* Chấm & Pin waypoint lịch sử trên track (màu tím violet nổi bật, có số thứ tự và nhãn tên) */
 .wp-pin-container.history {

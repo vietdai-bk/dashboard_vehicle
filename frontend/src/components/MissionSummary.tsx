@@ -20,6 +20,44 @@ export function MissionSummary({ mission, elapsedS }: { mission: Mission | null;
           <div className="field"><span className="k">COMPLETED</span><span className="v">{pad2(completed)}</span></div>
           <div className="field"><span className="k">REMAINING</span><span className="v">{pad2(Math.max(0, total - completed))}</span></div>
         </div>
+        {mission?.sampling && (
+          <div
+            style={{
+              background: "rgba(2, 132, 199, 0.12)",
+              border: "1px solid #0284c7",
+              borderRadius: "var(--radius)",
+              padding: "9px 12px",
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              boxShadow: "0 2px 8px rgba(2, 132, 199, 0.15)",
+            }}
+          >
+            <span
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: "50%",
+                background: "#0284c7",
+                display: "inline-block",
+                boxShadow: "0 0 0 4px rgba(2, 132, 199, 0.3)",
+              }}
+            />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 12, color: "#0284c7", display: "flex", alignItems: "center", gap: 6 }}>
+                <span>ĐANG CHỜ LẤY MẪU...</span>
+              </div>
+              <div style={{ fontSize: 11, color: "var(--text-2)", marginTop: 1 }}>
+                {mission.sampling_message || `Dừng 1 phút lấy mẫu tại WP#${mission.current_waypoint}`}
+              </div>
+            </div>
+            {mission.sampling_remaining_s !== undefined && mission.sampling_remaining_s > 0 && (
+              <span className="badge info mono" style={{ fontSize: 12, padding: "3px 8px", fontWeight: 700 }}>
+                {Math.round(mission.sampling_remaining_s)}s
+              </span>
+            )}
+          </div>
+        )}
         <div>
           <div className="row" style={{ justifyContent: "space-between", marginBottom: 4 }}>
             <span className="label">WP {pad2(active ? current : completed)} / {pad2(total)}</span>

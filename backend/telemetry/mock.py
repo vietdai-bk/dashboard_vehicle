@@ -76,6 +76,9 @@ class MockTelemetryProvider(TelemetryProvider):
         self.mission_state = "EMPTY"
         self.distance_travelled = 0.0
         self.satellites = 11
+        self.is_sampling = False
+        self.sampling_start_time = 0.0
+        self.sampling_duration = 60.0        # Dừng 1 phút (60 giây) để lấy mẫu tại mỗi waypoint
         self._t = 0.0
         self._last_mission_emit = 0.0
         self._last_sensor_emit = 0.0
@@ -179,6 +182,8 @@ class MockTelemetryProvider(TelemetryProvider):
         self.wp_index = 0
         self.route_index = 0
         self.completed = 0
+        self.is_sampling = False
+        self.sampling_start_time = 0.0
         self.state = "RUNNING"
         self.mission_state = "RUNNING"
         self._emit_mission(force=True)
@@ -216,6 +221,7 @@ class MockTelemetryProvider(TelemetryProvider):
         return CommandResult(True, "Returning to launch")
 
     def _finish_mission(self, final: str, emit: bool = True) -> None:
+        self.is_sampling = False
         self.mission_state = final
         self.state = "ARMED" if self.armed else "DISARMED"
         self.speed_mps = 0.0
@@ -252,10 +258,31 @@ class MockTelemetryProvider(TelemetryProvider):
                 target = (pt[0], pt[1])
             else:
                 target = (current_wp["lat"], current_wp["lon"])
-        elif self.state == "RTL":
-            target = self.home
+        # Nếu xe đang trong thời gian dừng 1 phút lấy mẫu tại waypoint
+        if self.state == "RUNNING" and self.is_sampling and self.wp_index < len(self.waypoints):
+            current_wp = self.waypoints[self.wp_index]
+            self.speed_mps = 0.0
+            elapsed = self._t - self.sampling_start_time
+            # Xe đứng yên chính xác tại waypoint
+            self.lat = current_wp["lat"]
+            self.lon = current_wp["lon"]
 
-        if target is not None:
+            if elapsed >= self.sampling_duration:
+                self.is_sampling = False
+                wp_name = current_wp.get("name") or f"WP{self.wp_index + 1:02d}"
+                self.completed += 1
+                self.wp_index += 1
+                self._emit({
+                    "type": "log",
+                    "level": "INFO",
+                    "message": f"Hoàn thành lấy mẫu tại {wp_name}. Xe tiếp tục hành trình ({self.completed}/{len(self.waypoints)} WP)..."
+                })
+                if self.wp_index >= len(self.waypoints):
+                    self._finish_mission("COMPLETED")
+                else:
+                    self._emit_mission(force=True)
+
+        elif target is not None:
             dist = haversine_m(self.lat, self.lon, *target)
             desired = bearing_deg(self.lat, self.lon, *target)
             # quay đầu có giới hạn tốc độ
@@ -290,15 +317,22 @@ class MockTelemetryProvider(TelemetryProvider):
                     if wp_dist <= max(accept, 4.5) and next_dist < wp_dist:
                         wp_reached = True
 
-                if wp_reached:
-                    self.completed += 1
-                    self.wp_index += 1
-                    self._emit({"type": "log", "level": "INFO",
-                                "message": f"Reached waypoint {self.completed}/{len(self.waypoints)}"})
-                    if self.wp_index >= len(self.waypoints):
-                        self._finish_mission("COMPLETED")
-                    else:
-                        self._emit_mission(force=True)
+                if wp_reached and not self.is_sampling:
+                    # Dừng xe 1 phút (60 giây) để lấy mẫu quan trắc
+                    self.is_sampling = True
+                    self.sampling_start_time = self._t
+                    self.sampling_duration = 60.0
+                    self.speed_mps = 0.0
+                    self.lat = current_wp["lat"]
+                    self.lon = current_wp["lon"]
+                    wp_name = current_wp.get("name") or f"WP{self.wp_index + 1:02d}"
+                    self._emit({
+                        "type": "log",
+                        "level": "INFO",
+                        "message": f"Xe đã đến {wp_name}. Đang dừng 1 phút để lấy mẫu (đang chờ lấy mẫu...)"
+                    })
+                    self._emit_mission(force=True)
+                    self._emit_telemetry()
 
             elif self.state == "RTL" and dist <= accept:
                 self.state = "ARMED"
@@ -333,6 +367,9 @@ class MockTelemetryProvider(TelemetryProvider):
             self._emit({"type": "heartbeat"})
 
     def _emit_telemetry(self) -> None:
+        rem_s = max(0.0, self.sampling_duration - (self._t - self.sampling_start_time)) if self.is_sampling else 0.0
+        wp_label = self.waypoints[self.wp_index].get("name") or f"WP{self.wp_index + 1:02d}" if (self.is_sampling and self.wp_index < len(self.waypoints)) else ""
+        sampling_msg = f"Đang chờ lấy mẫu tại {wp_label} (còn {int(rem_s)}s)..." if self.is_sampling else ""
         self._emit({
             "type": "telemetry",
             "lat": round(self.lat, 7), "lon": round(self.lon, 7),
@@ -348,6 +385,9 @@ class MockTelemetryProvider(TelemetryProvider):
             "total_waypoints": len(self.waypoints),
             "distance_travelled": round(self.distance_travelled, 1),
             "home_lat": self.home[0], "home_lon": self.home[1],
+            "sampling": self.is_sampling,
+            "sampling_remaining_s": round(rem_s, 0),
+            "sampling_message": sampling_msg,
         })
 
     def _emit_sensor(self) -> None:
@@ -376,6 +416,9 @@ class MockTelemetryProvider(TelemetryProvider):
             for i in range(self.wp_index, total - 1):
                 a, b = self.waypoints[i], self.waypoints[i + 1]
                 remaining += haversine_m(a["lat"], a["lon"], b["lat"], b["lon"])
+        rem_s = max(0.0, self.sampling_duration - (self._t - self.sampling_start_time)) if self.is_sampling else 0.0
+        wp_label = self.waypoints[self.wp_index].get("name") or f"WP{self.wp_index + 1:02d}" if (self.is_sampling and self.wp_index < len(self.waypoints)) else ""
+        sampling_msg = f"Đang chờ lấy mẫu tại {wp_label} (còn {int(rem_s)}s)..." if self.is_sampling else ""
         self._emit({
             "type": "mission",
             "state": self.mission_state,
@@ -383,4 +426,8 @@ class MockTelemetryProvider(TelemetryProvider):
             "completed": self.completed,
             "total": total,
             "distance_remaining": round(remaining, 1),
+            "sampling": self.is_sampling,
+            "sampling_waypoint": self.wp_index + 1 if self.is_sampling else 0,
+            "sampling_remaining_s": round(rem_s, 0),
+            "sampling_message": sampling_msg,
         })

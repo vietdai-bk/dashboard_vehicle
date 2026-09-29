@@ -165,6 +165,10 @@ class VehicleStateStore:
         for src, dst in mapping.items():
             if src in p and p[src] is not None:
                 setattr(v, dst, p[src])
+        if "sampling" in p:
+            v.sampling = bool(p["sampling"])
+            v.sampling_remaining_s = float(p.get("sampling_remaining_s", 0.0))
+            v.sampling_message = str(p.get("sampling_message", ""))
         if "armed" in p:
             if time.time() - self._last_ack_time > 0.4 or bool(p["armed"]) == v.armed:
                 v.armed = bool(p["armed"])

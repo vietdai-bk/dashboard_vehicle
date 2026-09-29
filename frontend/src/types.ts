@@ -44,6 +44,9 @@ export interface VehicleState {
   home_longitude: number;
   last_update: number;
   error_message: string;
+  sampling?: boolean;
+  sampling_remaining_s?: number;
+  sampling_message?: string;
 }
 
 export interface Telemetry {
@@ -74,6 +77,10 @@ export interface Mission {
   ended_at: number | null;
   upload_message: string;
   route_points?: [number, number][];
+  sampling?: boolean;
+  sampling_waypoint?: number;
+  sampling_remaining_s?: number;
+  sampling_message?: string;
 }
 
 
