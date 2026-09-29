@@ -134,7 +134,7 @@ class UARTTelemetryProvider(TelemetryProvider):
                     continue
             try:
                 raw = self._serial.readline()
-                # print("stm32 send: %s\r\n", raw)
+                print("stm32 send: %s\r\n", raw)
             except Exception as exc:  # noqa: BLE001 — cáp rút / thiết bị mất
                 log.error("UART read error: %s", exc)
                 self.emit({"type": "log", "level": "ERROR", "message": f"UART disconnected: {exc}"})
