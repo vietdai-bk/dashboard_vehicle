@@ -107,17 +107,11 @@ export function MapsPage() {
                   animation: "pulse-scale 1.5s infinite ease-in-out",
                 }}
               />
-              <span style={{ fontWeight: 700, color: "#0284c7" }}>⏳ ĐANG CHỜ LẤY MẪU QUAN TRẮC:</span>
+              <span style={{ fontWeight: 700, color: "#0284c7" }}>⏳ ĐANG LẤY MẪU:</span>
               <span style={{ fontWeight: 600 }}>
-                {mission?.sampling_message || vehicle?.sampling_message || `Xe đang dừng 1 phút lấy mẫu tại Waypoint #${mission?.current_waypoint || vehicle?.current_waypoint || 1}...`}
+                {mission?.sampling_message || vehicle?.sampling_message || `Đang lấy mẫu tại Waypoint #${mission?.current_waypoint || vehicle?.current_waypoint || 1}...`}
               </span>
             </div>
-            {((mission?.sampling_remaining_s ?? vehicle?.sampling_remaining_s) !== undefined &&
-              (mission?.sampling_remaining_s ?? vehicle?.sampling_remaining_s)! > 0) && (
-              <span className="badge info mono" style={{ fontSize: 13, padding: "4px 12px", fontWeight: 700, background: "#0284c7", color: "#fff" }}>
-                Còn {Math.round((mission?.sampling_remaining_s ?? vehicle?.sampling_remaining_s)!)}s
-              </span>
-            )}
           </div>
         )}
         {alerts.filter((a) => a.key !== "SAMPLING").length > 0 && (

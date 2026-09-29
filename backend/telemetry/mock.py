@@ -78,7 +78,7 @@ class MockTelemetryProvider(TelemetryProvider):
         self.satellites = 11
         self.is_sampling = False
         self.sampling_start_time = 0.0
-        self.sampling_duration = 60.0        # Dừng 1 phút (60 giây) để lấy mẫu tại mỗi waypoint
+        self.sampling_duration = 8.0         # Thời gian dừng mô phỏng lấy mẫu tại mỗi waypoint (demo)
         self.sampling_samples: list[dict[str, Any]] = []
         self._last_sampling_sample_t = 0.0
         self.completed_wp_info: Optional[dict[str, Any]] = None
@@ -353,10 +353,10 @@ class MockTelemetryProvider(TelemetryProvider):
                         wp_reached = True
 
                 if wp_reached and not self.is_sampling:
-                    # Dừng xe 1 phút (60 giây) để lấy mẫu quan trắc
+                    # Dừng xe để lấy mẫu quan trắc
                     self.is_sampling = True
                     self.sampling_start_time = self._t
-                    self.sampling_duration = 60.0
+                    self.sampling_duration = 8.0
                     self.sampling_samples = []
                     self._last_sampling_sample_t = self._t
                     # Thu thập mẫu đầu tiên
@@ -374,7 +374,7 @@ class MockTelemetryProvider(TelemetryProvider):
                     self._emit({
                         "type": "log",
                         "level": "INFO",
-                        "message": f"Xe đã đến {wp_name}. Đang dừng 1 phút để lấy mẫu (đang chờ lấy mẫu...)"
+                        "message": f"Xe đã đến {wp_name}. Đang lấy mẫu quan trắc..."
                     })
                     self._emit_mission(force=True)
                     self._emit_telemetry()
@@ -446,8 +446,8 @@ class MockTelemetryProvider(TelemetryProvider):
             "distance_travelled": round(self.distance_travelled, 1),
             "home_lat": self.home[0], "home_lon": self.home[1],
             "sampling": self.is_sampling,
-            "sampling_remaining_s": round(rem_s, 0),
-            "sampling_message": sampling_msg,
+            "sampling_remaining_s": 0.0,
+            "sampling_message": f"Đang lấy mẫu tại {wp_label}..." if self.is_sampling else "",
         })
 
     def _emit_sensor(self) -> None:
@@ -465,9 +465,8 @@ class MockTelemetryProvider(TelemetryProvider):
             for i in range(self.wp_index, total - 1):
                 a, b = self.waypoints[i], self.waypoints[i + 1]
                 remaining += haversine_m(a["lat"], a["lon"], b["lat"], b["lon"])
-        rem_s = max(0.0, self.sampling_duration - (self._t - self.sampling_start_time)) if self.is_sampling else 0.0
         wp_label = self.waypoints[self.wp_index].get("name") or f"WP{self.wp_index + 1:02d}" if (self.is_sampling and self.wp_index < len(self.waypoints)) else ""
-        sampling_msg = f"Đang chờ lấy mẫu tại {wp_label} (còn {int(rem_s)}s)..." if self.is_sampling else ""
+        sampling_msg = f"Đang lấy mẫu tại {wp_label}..." if self.is_sampling else ""
         packet: dict[str, Any] = {
             "type": "mission",
             "state": self.mission_state,
@@ -477,7 +476,7 @@ class MockTelemetryProvider(TelemetryProvider):
             "distance_remaining": round(remaining, 1),
             "sampling": self.is_sampling,
             "sampling_waypoint": self.wp_index + 1 if self.is_sampling else 0,
-            "sampling_remaining_s": round(rem_s, 0),
+            "sampling_remaining_s": 0.0,
             "sampling_message": sampling_msg,
         }
         if self.completed_wp_info:

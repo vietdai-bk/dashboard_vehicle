@@ -45,17 +45,12 @@ export function MissionSummary({ mission, elapsedS }: { mission: Mission | null;
             />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 12, color: "#0284c7", display: "flex", alignItems: "center", gap: 6 }}>
-                <span>ĐANG CHỜ LẤY MẪU...</span>
+                <span>ĐANG LẤY MẪU</span>
               </div>
               <div style={{ fontSize: 11, color: "var(--text-2)", marginTop: 1 }}>
-                {mission.sampling_message || `Dừng 1 phút lấy mẫu tại WP#${mission.current_waypoint}`}
+                {mission.sampling_message || `Đang lấy mẫu tại WP#${mission.current_waypoint}`}
               </div>
             </div>
-            {mission.sampling_remaining_s !== undefined && mission.sampling_remaining_s > 0 && (
-              <span className="badge info mono" style={{ fontSize: 12, padding: "3px 8px", fontWeight: 700 }}>
-                {Math.round(mission.sampling_remaining_s)}s
-              </span>
-            )}
           </div>
         )}
         <div>

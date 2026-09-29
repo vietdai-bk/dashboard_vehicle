@@ -76,12 +76,9 @@ export function WaypointList({ mission, editable, onUpdate, onDelete, onReorder,
                   <span
                     className="badge warn mono"
                     style={{ fontSize: 10, padding: "2px 6px", display: "inline-flex", alignItems: "center", gap: 4, background: "#0284c7", color: "#fff", borderColor: "#38bdf8" }}
-                    title={mission.sampling_message || "Đang dừng 1 phút lấy mẫu..."}
+                    title={mission.sampling_message || "Đang lấy mẫu quan trắc..."}
                   >
                     <span>⏳ ĐANG LẤY MẪU</span>
-                    {mission.sampling_remaining_s !== undefined && mission.sampling_remaining_s > 0 && (
-                      <b>{Math.round(mission.sampling_remaining_s)}s</b>
-                    )}
                   </span>
                 )}
                 {wp.telemetry && (

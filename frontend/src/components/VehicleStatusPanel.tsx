@@ -21,11 +21,8 @@ export function VehicleStatusPanel() {
             <div className="alert-banner info" style={{ background: "rgba(2, 132, 199, 0.12)", border: "1px solid #0284c7", color: "#0284c7", padding: "6px 10px", fontSize: 11.5, display: "flex", alignItems: "center", justifyContent: "space-between", borderRadius: "var(--radius)" }}>
               <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <span>🔬</span>
-                <b>Đang chờ lấy mẫu...</b>
+                <b>Đang lấy mẫu quan trắc</b>
               </span>
-              {v.sampling_remaining_s !== undefined && v.sampling_remaining_s > 0 && (
-                <span className="mono" style={{ fontWeight: 700 }}>{Math.round(v.sampling_remaining_s)}s</span>
-              )}
             </div>
           )}
           {v.error_message && <div className="alert-banner critical">{v.error_message}</div>}

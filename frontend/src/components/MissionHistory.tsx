@@ -193,6 +193,30 @@ export function MissionHistory({ onSelectOnMap: _onSelectOnMap }: Props) {
                                   <div>Độ ẩm: <b style={{ color: "var(--text)" }}>{(t?.humidity ?? 68).toFixed(1)} %</b></div>
                                   <div>Thời gian: <b style={{ color: "var(--text)" }}>{reachedStr || "Đã qua"}</b></div>
                                 </div>
+                                <div style={{ marginTop: 6, display: "flex", justifyContent: "flex-end" }}>
+                                  <a
+                                    href={`/api/mission/waypoints/${wp.id}/csv`}
+                                    download={wp.csv_file || `wp${String(wp.id || idx + 1).padStart(2, "0")}_samples.csv`}
+                                    className="btn xs"
+                                    style={{
+                                      textDecoration: "none",
+                                      fontSize: 10.5,
+                                      padding: "2px 8px",
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: 4,
+                                      background: "var(--surface-2)",
+                                      border: "1px solid var(--line-strong)",
+                                      color: "var(--text)",
+                                      borderRadius: 4,
+                                      fontWeight: 600,
+                                    }}
+                                    title="Tải file CSV dữ liệu đo đạc tại waypoint này"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    ⬇ Tải CSV
+                                  </a>
+                                </div>
                               </div>
                             );
                           })}

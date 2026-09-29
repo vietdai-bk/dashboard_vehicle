@@ -123,7 +123,7 @@ export function buildTerritoryPopupHtml(t: VietnamTerritory): string {
 export function buildWaypointPopupHtml(wp: Waypoint, index: number, isPassed: boolean, currentAqi?: number): string {
   const t = wp.telemetry;
   const reachedTime = wp.reached_at
-    ? new Date(wp.reached_at * 1000).toLocaleTimeString()
+    ? new Date(wp.reached_at * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
     : null;
 
   const island = isVietnamIslandTerritory(wp.latitude, wp.longitude, wp.name);
@@ -133,16 +133,15 @@ export function buildWaypointPopupHtml(wp: Waypoint, index: number, isPassed: bo
   const aqi = (t && t.aqi != null) ? t.aqi : (currentAqi && currentAqi > 0 ? currentAqi : 58);
   const badge = getAqiBadge(aqi);
 
-  const sovereigntyBanner = islandName ? `
-    <div style="background:linear-gradient(90deg, #da251d, #b91c1c);color:#fff;padding:6px 10px;border-radius:5px;margin-bottom:8px;font-weight:700;font-size:11.5px;display:flex;align-items:center;gap:6px;box-shadow:0 2px 5px rgba(218,37,29,0.35);">
-      <span style="font-size:15px">🇻🇳</span>
-      <span>Quần đảo ${islandName} — Chủ quyền Việt Nam</span>
+  const sovereigntyTag = islandName ? `
+    <div style="font-size:11px;font-weight:700;color:#da251d;margin-bottom:6px;display:flex;align-items:center;gap:4px;">
+      <span>🇻🇳</span><span>Quần đảo ${islandName} (Việt Nam)</span>
     </div>
   ` : "";
 
   let bodyHtml = "";
   if (isPassed || t) {
-    const sampleCount = wp.sample_count || (t && (t as any).sample_count) || 60;
+    const sampleCount = wp.sample_count || (t && (t as any).sample_count) || 1;
     const pm25 = (t && t.pm25 != null) ? t.pm25 : (aqi * 0.35);
     const pm10 = (t && (t as any).pm10 != null) ? (t as any).pm10 : (pm25 * 1.5);
     const co2 = (t && t.co2 != null) ? t.co2 : 625;
@@ -156,72 +155,46 @@ export function buildWaypointPopupHtml(wp: Waypoint, index: number, isPassed: bo
 
     bodyHtml = `
       <div class="wp-popup-body">
-        ${sovereigntyBanner}
-        <div style="background:rgba(2, 132, 199, 0.12);border:1px solid #0284c7;color:#0284c7;padding:5px 8px;border-radius:4px;font-size:11px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;">
-          <span>📊 CHỈ SỐ TRUNG BÌNH (${sampleCount} LẦN ĐO / 1 PHÚT)</span>
-          <span style="font-size:10px;background:#0284c7;color:#fff;padding:1px 5px;border-radius:3px">ĐÃ LẤY MẪU</span>
-        </div>
-        <div class="wp-popup-aqi" style="background:${badge.bg};color:${badge.fg};display:flex;justify-content:space-between;align-items:center;padding:7px 10px;border-radius:4px;font-weight:700;font-size:12.5px;">
-          <span>CHỈ SỐ AQI TRUNG BÌNH</span>
-          <span>${aqi.toFixed(0)} · ${badge.label}</span>
-        </div>
-        <div style="background:${badge.bg};color:${badge.fg};border:1px solid ${badge.border};border-radius:4px;padding:6px 9px;margin:6px 0;font-size:11px;line-height:1.35;">
-          🛡️ <b>Khuyến nghị:</b> ${badge.recommendation}
-        </div>
-        <div class="wp-metrics-grid">
-          <div class="wp-metric-item">
-            <span class="lbl">PM2.5 (TB)</span>
-            <span class="val">${pm25.toFixed(1)} µg/m³</span>
-          </div>
-          <div class="wp-metric-item">
-            <span class="lbl">PM10 (TB)</span>
-            <span class="val">${pm10.toFixed(1)} µg/m³</span>
-          </div>
-          <div class="wp-metric-item">
-            <span class="lbl">Khí CO₂ (TB)</span>
-            <span class="val">${co2.toFixed(0)} ppm</span>
-          </div>
-          <div class="wp-metric-item">
-            <span class="lbl">Khí CO (TB)</span>
-            <span class="val">${co.toFixed(2)} ppm</span>
-          </div>
-          <div class="wp-metric-item">
-            <span class="lbl">TVOC (TB)</span>
-            <span class="val">${tvoc.toFixed(0)} ppb</span>
-          </div>
-          <div class="wp-metric-item">
-            <span class="lbl">NOx (TB)</span>
-            <span class="val">${nox.toFixed(1)}</span>
-          </div>
-          <div class="wp-metric-item">
-            <span class="lbl">Nhiệt độ (TB)</span>
-            <span class="val">${temp.toFixed(1)} °C</span>
-          </div>
-          <div class="wp-metric-item">
-            <span class="lbl">Độ ẩm (TB)</span>
-            <span class="val">${hum.toFixed(1)} %</span>
-          </div>
+        ${sovereigntyTag}
+        <div class="wp-popup-summary-row">
+          <span style="font-size:11.5px;color:var(--text-2);font-weight:600;">Chỉ số AQI</span>
+          <span class="badge" style="background:${badge.bg};color:${badge.fg};font-weight:700;font-size:11.5px;padding:2px 8px;">
+            ${aqi.toFixed(0)} · ${badge.label}
+          </span>
         </div>
 
-        <div style="margin-top:10px;">
-          <a href="${downloadUrl}" download="${csvFileName}"
-             style="display:flex;align-items:center;justify-content:center;gap:6px;width:100%;box-sizing:border-box;padding:7px 12px;background:#0284c7;color:#ffffff;border-radius:5px;text-decoration:none;font-weight:700;font-size:11.5px;text-align:center;box-shadow:0 2px 4px rgba(2,132,199,0.3);cursor:pointer;">
-            <span>📥</span>
-            <span>TẢI DỮ LIỆU CSV (.csv)</span>
-          </a>
+        <div class="wp-metrics-table">
+          <div class="wp-metric-row"><span class="k">PM2.5</span><span class="v">${pm25.toFixed(1)} <small>µg/m³</small></span></div>
+          <div class="wp-metric-row"><span class="k">PM10</span><span class="v">${pm10.toFixed(1)} <small>µg/m³</small></span></div>
+          <div class="wp-metric-row"><span class="k">CO₂</span><span class="v">${co2.toFixed(0)} <small>ppm</small></span></div>
+          <div class="wp-metric-row"><span class="k">TVOC</span><span class="v">${tvoc.toFixed(0)} <small>ppb</small></span></div>
+          <div class="wp-metric-row"><span class="k">Khí CO</span><span class="v">${co.toFixed(2)} <small>ppm</small></span></div>
+          <div class="wp-metric-row"><span class="k">NOx</span><span class="v">${nox.toFixed(1)}</span></div>
+          <div class="wp-metric-row"><span class="k">Nhiệt độ</span><span class="v">${temp.toFixed(1)} <small>°C</small></span></div>
+          <div class="wp-metric-row"><span class="k">Độ ẩm</span><span class="v">${hum.toFixed(1)} <small>%</small></span></div>
         </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:10.5px;color:var(--text-3);padding:2px 0;">
+          <span>Số mẫu thu thập:</span>
+          <span class="mono" style="font-weight:600;color:var(--text)">${sampleCount} mẫu</span>
+        </div>
+
+        <a href="${downloadUrl}" download="${csvFileName}" class="wp-popup-csv-btn">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Tải file CSV đo đạc
+        </a>
       </div>
     `;
   } else {
     bodyHtml = `
-      <div class="wp-popup-body" style="padding:10px 12px;font-size:12px;">
-        ${sovereigntyBanner}
-        <div style="background:var(--surface-2);border:1px dashed var(--line-strong);padding:8px 10px;border-radius:4px;color:var(--text-2);line-height:1.4;">
-          <div style="font-weight:600;color:var(--text);margin-bottom:4px">Điểm waypoint chưa chạy qua</div>
-          AQI hiện tại của xe: <b style="color:${badge.fg};background:${badge.bg};padding:1px 5px;border-radius:3px">${aqi.toFixed(0)} (${badge.label})</b>
-          <div style="margin-top:6px;font-size:11px;color:var(--text-3)">
-            Xe sẽ tự động dừng 1 phút để lấy mẫu liên tục tại điểm này, tính các chỉ số trung bình và xuất file CSV tải về.
-          </div>
+      <div class="wp-popup-body">
+        ${sovereigntyTag}
+        <div style="font-size:11.5px;color:var(--text-2);line-height:1.4;">
+          Điểm quan trắc chưa đo. Xe sẽ dừng thu thập dữ liệu theo lệnh và lưu file CSV khi tới điểm này.
         </div>
       </div>
     `;
@@ -230,11 +203,10 @@ export function buildWaypointPopupHtml(wp: Waypoint, index: number, isPassed: bo
   return `
     <div class="wp-popup-card">
       <div class="wp-popup-header">
-        <div class="title" style="font-weight:700;font-size:13px;color:var(--text);display:flex;align-items:center;gap:6px;">
+        <div class="title" style="font-weight:700;font-size:12.5px;display:flex;align-items:center;gap:6px;">
           <span>${islandName ? '🇻🇳 ' : ''}${wpTitle}</span>
-          ${isPassed || t ? `<span class="badge ok mono" style="font-size:11px;background:${badge.bg};color:${badge.fg}">AQI ${aqi.toFixed(0)}</span>` : ""}
         </div>
-        ${reachedTime ? `<span class="badge ok mono" style="font-size:10px">${reachedTime}</span>` : isPassed ? `<span class="badge ok" style="font-size:10px">ĐÃ QUA</span>` : `<span class="badge neutral" style="font-size:10px">CHƯA TỚI</span>`}
+        ${reachedTime ? `<span class="badge neutral mono" style="font-size:10px">${reachedTime}</span>` : isPassed ? `<span class="badge ok" style="font-size:10px">ĐÃ ĐO</span>` : `<span class="badge neutral" style="font-size:10px">CHƯA TỚI</span>`}
       </div>
       ${bodyHtml}
     </div>
@@ -484,7 +456,7 @@ export function VehicleMap({ mission, onMapClick, onWaypointMoved, selectedWaypo
       const islandSub = islandName ? `<div style="color:#da251d;font-weight:800;font-size:11px;margin-top:2px;">🇻🇳 ${islandName} (Việt Nam)</div>` : "";
 
       const badgeText = isSamplingThisWp
-        ? `WP${String(i + 1).padStart(2, "0")} · ⏳ Đang lấy mẫu (${Math.round(mission?.sampling_remaining_s ?? 60)}s)`
+        ? `WP${String(i + 1).padStart(2, "0")} · ⏳ Đang lấy mẫu`
         : isPassed && aqiNum != null
         ? `WP${String(i + 1).padStart(2, "0")} · AQI ${aqiNum.toFixed(0)}`
         : `WP${String(i + 1).padStart(2, "0")}`;
