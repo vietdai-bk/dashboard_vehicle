@@ -165,6 +165,20 @@ class VehicleStateStore:
         for src, dst in mapping.items():
             if src in p and p[src] is not None:
                 setattr(v, dst, p[src])
+        if "battery" in p and p["battery"] is not None:
+            bat_val = float(p["battery"])
+            if 9.0 <= bat_val <= 26.0 and "voltage" not in p:
+                # STM32 gửi điện áp (V) ví dụ 11.8V (pin LiPo 3S 10.5V-12.6V)
+                v.voltage = bat_val
+                if bat_val <= 13.0:
+                    v.battery = max(0.0, min(100.0, round((bat_val - 10.5) / 2.1 * 100.0, 1)))
+                else:
+                    v.battery = max(0.0, min(100.0, round((bat_val - 14.0) / 2.8 * 100.0, 1)))
+            else:
+                v.battery = bat_val
+        if "voltage" in p and p["voltage"] is not None:
+            v.voltage = float(p["voltage"])
+
         if "sampling" in p:
             v.sampling = bool(p["sampling"])
             v.sampling_remaining_s = float(p.get("sampling_remaining_s", 0.0))
@@ -176,7 +190,7 @@ class VehicleStateStore:
             raw_state = str(p["state"]).upper()
             if raw_state in VALID_TRANSITIONS:
                 new_state = raw_state
-            elif raw_state in ("AUTO", "DRIVING", "MOVING", "MANUAL"):
+            elif raw_state in ("AUTO", "DRIVING", "MOVING", "MANUAL", "RUNING"):
                 new_state = "RUNNING"
             else:
                 new_state = raw_state
