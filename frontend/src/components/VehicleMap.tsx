@@ -142,19 +142,27 @@ export function buildWaypointPopupHtml(wp: Waypoint, index: number, isPassed: bo
 
   let bodyHtml = "";
   if (isPassed || t) {
+    const sampleCount = wp.sample_count || (t && (t as any).sample_count) || 60;
     const pm25 = (t && t.pm25 != null) ? t.pm25 : (aqi * 0.35);
+    const pm10 = (t && (t as any).pm10 != null) ? (t as any).pm10 : (pm25 * 1.5);
     const co2 = (t && t.co2 != null) ? t.co2 : 625;
     const co = (t && t.co != null) ? t.co : 2.2;
     const tvoc = (t && t.tvoc != null) ? t.tvoc : 124;
     const nox = (t && t.nox != null) ? t.nox : 42;
     const temp = (t && t.temperature != null) ? t.temperature : 28.5;
     const hum = (t && t.humidity != null) ? t.humidity : 70.0;
+    const csvFileName = wp.csv_file || `wp${String(wp.id || index + 1).padStart(2, "0")}_samples.csv`;
+    const downloadUrl = `/api/mission/waypoints/${wp.id}/csv`;
 
     bodyHtml = `
       <div class="wp-popup-body">
         ${sovereigntyBanner}
+        <div style="background:rgba(2, 132, 199, 0.12);border:1px solid #0284c7;color:#0284c7;padding:5px 8px;border-radius:4px;font-size:11px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;">
+          <span>📊 CHỈ SỐ TRUNG BÌNH (${sampleCount} LẦN ĐO / 1 PHÚT)</span>
+          <span style="font-size:10px;background:#0284c7;color:#fff;padding:1px 5px;border-radius:3px">ĐÃ LẤY MẪU</span>
+        </div>
         <div class="wp-popup-aqi" style="background:${badge.bg};color:${badge.fg};display:flex;justify-content:space-between;align-items:center;padding:7px 10px;border-radius:4px;font-weight:700;font-size:12.5px;">
-          <span>CHỈ SỐ AQI</span>
+          <span>CHỈ SỐ AQI TRUNG BÌNH</span>
           <span>${aqi.toFixed(0)} · ${badge.label}</span>
         </div>
         <div style="background:${badge.bg};color:${badge.fg};border:1px solid ${badge.border};border-radius:4px;padding:6px 9px;margin:6px 0;font-size:11px;line-height:1.35;">
@@ -162,37 +170,45 @@ export function buildWaypointPopupHtml(wp: Waypoint, index: number, isPassed: bo
         </div>
         <div class="wp-metrics-grid">
           <div class="wp-metric-item">
-            <span class="lbl">Bụi PM2.5</span>
+            <span class="lbl">PM2.5 (TB)</span>
             <span class="val">${pm25.toFixed(1)} µg/m³</span>
           </div>
           <div class="wp-metric-item">
-            <span class="lbl">Khí CO₂</span>
+            <span class="lbl">PM10 (TB)</span>
+            <span class="val">${pm10.toFixed(1)} µg/m³</span>
+          </div>
+          <div class="wp-metric-item">
+            <span class="lbl">Khí CO₂ (TB)</span>
             <span class="val">${co2.toFixed(0)} ppm</span>
           </div>
           <div class="wp-metric-item">
-            <span class="lbl">Khí CO</span>
+            <span class="lbl">Khí CO (TB)</span>
             <span class="val">${co.toFixed(2)} ppm</span>
           </div>
           <div class="wp-metric-item">
-            <span class="lbl">TVOC</span>
+            <span class="lbl">TVOC (TB)</span>
             <span class="val">${tvoc.toFixed(0)} ppb</span>
           </div>
           <div class="wp-metric-item">
-            <span class="lbl">NOx</span>
+            <span class="lbl">NOx (TB)</span>
             <span class="val">${nox.toFixed(1)}</span>
           </div>
           <div class="wp-metric-item">
-            <span class="lbl">Nhiệt độ</span>
+            <span class="lbl">Nhiệt độ (TB)</span>
             <span class="val">${temp.toFixed(1)} °C</span>
           </div>
           <div class="wp-metric-item">
-            <span class="lbl">Độ ẩm</span>
+            <span class="lbl">Độ ẩm (TB)</span>
             <span class="val">${hum.toFixed(1)} %</span>
           </div>
-          <div class="wp-metric-item">
-            <span class="lbl">Tọa độ</span>
-            <span class="val" style="font-size:10.5px">${wp.latitude.toFixed(4)}, ${wp.longitude.toFixed(4)}</span>
-          </div>
+        </div>
+
+        <div style="margin-top:10px;">
+          <a href="${downloadUrl}" download="${csvFileName}"
+             style="display:flex;align-items:center;justify-content:center;gap:6px;width:100%;box-sizing:border-box;padding:7px 12px;background:#0284c7;color:#ffffff;border-radius:5px;text-decoration:none;font-weight:700;font-size:11.5px;text-align:center;box-shadow:0 2px 4px rgba(2,132,199,0.3);cursor:pointer;">
+            <span>📥</span>
+            <span>TẢI DỮ LIỆU CSV (.csv)</span>
+          </a>
         </div>
       </div>
     `;
@@ -204,7 +220,7 @@ export function buildWaypointPopupHtml(wp: Waypoint, index: number, isPassed: bo
           <div style="font-weight:600;color:var(--text);margin-bottom:4px">Điểm waypoint chưa chạy qua</div>
           AQI hiện tại của xe: <b style="color:${badge.fg};background:${badge.bg};padding:1px 5px;border-radius:3px">${aqi.toFixed(0)} (${badge.label})</b>
           <div style="margin-top:6px;font-size:11px;color:var(--text-3)">
-            Thông số đo đạc chi tiết (AQI, PM2.5, CO₂, TVOC...) sẽ tự động lưu khi xe đi qua điểm này.
+            Xe sẽ tự động dừng 1 phút để lấy mẫu liên tục tại điểm này, tính các chỉ số trung bình và xuất file CSV tải về.
           </div>
         </div>
       </div>

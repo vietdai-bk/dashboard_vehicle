@@ -1,10 +1,12 @@
 """MissionManager — waypoint, mission state machine, lưu/tải mission, lịch sử."""
 from __future__ import annotations
 
+import csv
 import json
 import logging
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -16,6 +18,80 @@ from ..models import (Mission, MissionHistoryEntry, SavedMission, Waypoint, Wayp
                       WaypointUpdate)
 
 log = logging.getLogger("mission")
+
+WP_DATA_DIR = DATA_DIR / "waypoints"
+WP_DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def save_waypoint_csv(
+    wp_id: int,
+    wp_name: str,
+    lat: float,
+    lon: float,
+    alt: float,
+    samples: list[dict[str, Any]]
+) -> tuple[str, Path, dict[str, Any]]:
+    """Ghi dữ liệu các lần lấy mẫu tại waypoint ra file CSV riêng và tính các chỉ số trung bình."""
+    WP_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now()
+    filename = f"wp{wp_id:02d}_{ts.strftime('%Y%m%d_%H%M%S')}.csv"
+    filepath = WP_DATA_DIR / filename
+
+    fieldnames = [
+        "Mẫu số", "Thời gian", "Vĩ độ (Lat)", "Kinh độ (Lon)", "Độ cao (m)",
+        "PM2.5 (µg/m³)", "PM10 (µg/m³)", "CO (ppm)", "NOx (ppb)",
+        "CO2 (ppm)", "TVOC (ppb)", "Nhiệt độ (°C)", "Độ ẩm (%)", "Chỉ số VN_AQI"
+    ]
+
+    with open(filepath, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f)
+        writer.writerow(fieldnames)
+        for i, s in enumerate(samples, start=1):
+            writer.writerow([
+                i,
+                s.get("time") or datetime.fromtimestamp(s.get("timestamp", time.time())).strftime("%Y-%m-%d %H:%M:%S"),
+                round(float(s.get("lat", lat)), 7),
+                round(float(s.get("lon", lon)), 7),
+                round(float(s.get("alt", alt)), 1),
+                round(float(s.get("pm25", 0.0)), 1),
+                round(float(s.get("pm10", round(float(s.get("pm25", 0.0)) * 1.5, 1))), 1),
+                round(float(s.get("co", 0.0)), 2),
+                round(float(s.get("nox", 0.0)), 1),
+                round(float(s.get("co2", 0.0)), 0),
+                round(float(s.get("tvoc", 0.0)), 0),
+                round(float(s.get("temperature", 0.0)), 1),
+                round(float(s.get("humidity", 0.0)), 1),
+                int(round(float(s.get("aqi", 1)))),
+            ])
+
+    count = max(1, len(samples))
+    avg_pm25 = round(sum(float(s.get("pm25", 0.0)) for s in samples) / count, 1)
+    avg_pm10 = round(sum(float(s.get("pm10", round(float(s.get("pm25", 0.0)) * 1.5, 1))) for s in samples) / count, 1)
+    avg_co = round(sum(float(s.get("co", 0.0)) for s in samples) / count, 2)
+    avg_nox = round(sum(float(s.get("nox", 0.0)) for s in samples) / count, 1)
+    avg_co2 = round(sum(float(s.get("co2", 0.0)) for s in samples) / count, 0)
+    avg_tvoc = round(sum(float(s.get("tvoc", 0.0)) for s in samples) / count, 0)
+    avg_temp = round(sum(float(s.get("temperature", 0.0)) for s in samples) / count, 1)
+    avg_hum = round(sum(float(s.get("humidity", 0.0)) for s in samples) / count, 1)
+
+    from ..telemetry.aqi import calculate_composite_aqi
+    avg_telemetry: dict[str, Any] = {
+        "pm25": avg_pm25,
+        "pm10": avg_pm10,
+        "co": avg_co,
+        "nox": avg_nox,
+        "co2": avg_co2,
+        "tvoc": avg_tvoc,
+        "temperature": avg_temp,
+        "humidity": avg_hum,
+    }
+    avg_telemetry["aqi"] = calculate_composite_aqi(avg_telemetry)
+    avg_telemetry["timestamp"] = time.time()
+    avg_telemetry["is_average"] = True
+    avg_telemetry["sample_count"] = len(samples)
+
+    log.info("Saved %d samples to %s for %s", len(samples), filepath, wp_name)
+    return filename, filepath, avg_telemetry
 
 
 class MissionError(Exception):
@@ -43,6 +119,8 @@ class MissionManager:
         self._sampling_wp_idx = -1
         self._sampling_start_time = 0.0
         self._sampling_duration = 60.0        # Dừng 1 phút (60 giây) để lấy mẫu
+        self._sampling_samples: list[dict[str, Any]] = []
+        self._last_sample_time = 0.0
         store.mission = self
 
     # ------------------------------------------------------------------ persistence
@@ -352,9 +430,8 @@ class MissionManager:
         m.sampling_remaining_s = 0.0
         m.sampling_message = ""
         self.store.vehicle.sampling = False
-        self.store.vehicle.sampling_remaining_s = 0.0
-        self.store.vehicle.sampling_message = ""
-        self.store.alerts.clear_alert("SAMPLING")
+        self._sampling_samples = []
+        self.store.alerts.clear("SAMPLING")
         self.store.reset_track()
         self.store.events.add("INFO", "mission", f"Mission '{m.name}' started")
         self._broadcast()
@@ -440,6 +517,19 @@ class MissionManager:
             m.progress = max(by_distance, m.completed / total if total else 0.0)
         elif total:
             m.progress = m.completed / total
+        if "completed_wp" in packet:
+            c_info = packet["completed_wp"]
+            c_idx = c_info.get("index", -1)
+            if 0 <= c_idx < len(m.waypoints):
+                target_wp = m.waypoints[c_idx]
+                if "telemetry" in c_info:
+                    target_wp.telemetry = c_info["telemetry"]
+                if "csv_file" in c_info:
+                    target_wp.csv_file = c_info["csv_file"]
+                if "sample_count" in c_info:
+                    target_wp.sample_count = c_info["sample_count"]
+                target_wp.reached_at = c_info.get("reached_at", time.time())
+
         if "sampling" in packet:
             m.sampling = bool(packet["sampling"])
             m.sampling_waypoint = int(packet.get("sampling_waypoint", m.current_waypoint))
@@ -449,9 +539,9 @@ class MissionManager:
             self.store.vehicle.sampling_remaining_s = m.sampling_remaining_s
             self.store.vehicle.sampling_message = m.sampling_message
             if m.sampling:
-                self.store.alerts.raise_alert("SAMPLING", m.sampling_message or "Đang chờ lấy mẫu quan trắc...", level="info")
+                self.store.alerts.raise_alert("SAMPLING", "warning", m.sampling_message or "Đang chờ lấy mẫu quan trắc...")
             else:
-                self.store.alerts.clear_alert("SAMPLING")
+                self.store.alerts.clear("SAMPLING")
 
         if state == "COMPLETED" and m.status in ("RUNNING", "PAUSED"):
             m.status = "COMPLETED"
@@ -481,7 +571,8 @@ class MissionManager:
 
         # 1. Nếu xe đang dừng lấy mẫu tại waypoint này
         if self._sampling and self._sampling_wp_idx == curr_idx:
-            elapsed = time.time() - self._sampling_start_time
+            now = time.time()
+            elapsed = now - self._sampling_start_time
             remaining = max(0.0, self._sampling_duration - elapsed)
             m.sampling = True
             m.sampling_waypoint = curr_idx + 1
@@ -491,10 +582,17 @@ class MissionManager:
             self.store.vehicle.sampling_remaining_s = m.sampling_remaining_s
             self.store.vehicle.sampling_message = m.sampling_message
 
-            # Thu thập / cập nhật telemetry trong thời gian lấy mẫu
-            tele = self.store.telemetry.model_dump()
-            curr_wp.telemetry = tele
-            curr_wp.reached_at = time.time()
+            # Thu thập mẫu định kỳ mỗi giây
+            if now - self._last_sample_time >= 0.95:
+                self._last_sample_time = now
+                s_data = self.store.telemetry.model_dump()
+                s_data["timestamp"] = now
+                s_data["lat"] = lat
+                s_data["lon"] = lon
+                s_data["alt"] = curr_wp.altitude
+                self._sampling_samples.append(s_data)
+
+            self.store.alerts.raise_alert("SAMPLING", "warning", m.sampling_message)
 
             if remaining <= 0:
                 self._sampling = False
@@ -504,10 +602,26 @@ class MissionManager:
                 self.store.vehicle.sampling = False
                 self.store.vehicle.sampling_remaining_s = 0.0
                 self.store.vehicle.sampling_message = ""
-                self.store.alerts.clear_alert("SAMPLING")
+                self.store.alerts.clear("SAMPLING")
+
+                # Xuất CSV và tính chỉ số trung bình các lần đo tại waypoint
+                samples_to_save = self._sampling_samples or [self.store.telemetry.model_dump()]
+                filename, _, avg_tele = save_waypoint_csv(
+                    wp_id=curr_wp.id,
+                    wp_name=curr_wp.name,
+                    lat=curr_wp.latitude,
+                    lon=curr_wp.longitude,
+                    alt=curr_wp.altitude,
+                    samples=samples_to_save,
+                )
+                curr_wp.telemetry = avg_tele
+                curr_wp.csv_file = filename
+                curr_wp.sample_count = len(samples_to_save)
+                curr_wp.reached_at = now
+                self._sampling_samples = []
 
                 m.completed = curr_idx + 1
-                self.store.events.add("INFO", "mission", f"Hoàn thành lấy mẫu tại {curr_wp.name}. Xe tiếp tục hành trình ({m.completed}/{total} WP).")
+                self.store.events.add("INFO", "mission", f"Hoàn thành lấy mẫu tại {curr_wp.name} (ghi nhận {curr_wp.sample_count} mẫu -> {filename}). Xe tiếp tục hành trình ({m.completed}/{total} WP).")
                 if m.completed >= total:
                     m.status = "COMPLETED"
                     m.progress = 1.0
@@ -531,6 +645,8 @@ class MissionManager:
             self._sampling_wp_idx = curr_idx
             self._sampling_start_time = time.time()
             self._sampling_duration = 60.0
+            self._sampling_samples = []
+            self._last_sample_time = time.time()
             m.sampling = True
             m.sampling_waypoint = curr_idx + 1
             m.sampling_remaining_s = 60.0
@@ -539,13 +655,16 @@ class MissionManager:
             self.store.vehicle.sampling_remaining_s = 60.0
             self.store.vehicle.sampling_message = m.sampling_message
 
-            # Chụp telemetry ban đầu
-            tele = self.store.telemetry.model_dump()
-            curr_wp.telemetry = tele
-            curr_wp.reached_at = time.time()
+            # Thu thập mẫu đầu tiên
+            first_sample = self.store.telemetry.model_dump()
+            first_sample["timestamp"] = time.time()
+            first_sample["lat"] = lat
+            first_sample["lon"] = lon
+            first_sample["alt"] = curr_wp.altitude
+            self._sampling_samples.append(first_sample)
 
             self.store.events.add("INFO", "mission", f"Xe đã đến {curr_wp.name}. Đang dừng 1 phút để lấy mẫu (đang chờ lấy mẫu)...")
-            self.store.alerts.raise_alert("SAMPLING", f"Đang chờ lấy mẫu quan trắc tại {curr_wp.name} (còn 60s)...", level="info")
+            self.store.alerts.raise_alert("SAMPLING", "warning", f"Đang chờ lấy mẫu quan trắc tại {curr_wp.name} (còn 60s)...")
             self._broadcast()
 
     def _vehicle_idle(self) -> None:
@@ -562,13 +681,14 @@ class MissionManager:
         m, v = self.current, self.store.vehicle
         self._sampling = False
         self._sampling_wp_idx = -1
+        self._sampling_samples = []
         m.sampling = False
         m.sampling_remaining_s = 0.0
         m.sampling_message = ""
         self.store.vehicle.sampling = False
         self.store.vehicle.sampling_remaining_s = 0.0
         self.store.vehicle.sampling_message = ""
-        self.store.alerts.clear_alert("SAMPLING")
+        self.store.alerts.clear("SAMPLING")
         if m.ended_at is not None or m.started_at is None:
             return
         m.ended_at = time.time()
@@ -595,6 +715,30 @@ class MissionManager:
             if not wp.reached_at:
                 dur = max(1.0, m.ended_at - (m.started_at or m.ended_at))
                 wp.reached_at = (m.started_at or m.ended_at) + dur * ((idx + 1) / max(1, len(m.waypoints)))
+            if not wp.csv_file and wp.telemetry:
+                # Tạo file CSV mẫu cho waypoint đã hoàn thành nếu chưa tạo file trước đó
+                base_s = wp.telemetry
+                mock_samples = []
+                sc = wp.sample_count or 60
+                w_time = wp.reached_at or time.time()
+                for s_i in range(sc):
+                    t_val = w_time - (sc - 1 - s_i)
+                    mock_samples.append({
+                        "timestamp": t_val,
+                        "lat": wp.latitude, "lon": wp.longitude, "alt": wp.altitude,
+                        "pm25": base_s.get("pm25", 20.0),
+                        "pm10": base_s.get("pm10", round(float(base_s.get("pm25", 20.0)) * 1.5, 1)),
+                        "co": base_s.get("co", 2.0),
+                        "nox": base_s.get("nox", 40.0),
+                        "co2": base_s.get("co2", 600.0),
+                        "tvoc": base_s.get("tvoc", 120.0),
+                        "temperature": base_s.get("temperature", 28.0),
+                        "humidity": base_s.get("humidity", 70.0),
+                        "aqi": base_s.get("aqi", 50),
+                    })
+                fname, _, avg_t = save_waypoint_csv(wp.id, wp.name, wp.latitude, wp.longitude, wp.altitude, mock_samples)
+                wp.csv_file = fname
+                wp.sample_count = sc
 
         entry = MissionHistoryEntry(
             id=uuid.uuid4().hex[:8], mission_id=m.id, name=m.name, status=status,  # type: ignore[arg-type]

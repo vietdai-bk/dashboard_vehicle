@@ -76,13 +76,20 @@ class AlertManager:
 
     def raise_alert(self, key: str, level: str, message: str) -> Alert:
         existing = self._alerts.get(key)
-        if existing and existing.active and existing.level == level:
+        if existing and existing.active:
+            if existing.level == level and existing.message == message:
+                return existing
+            existing.level = level
+            existing.message = message
+            existing.timestamp = time.time()
+            self._broadcast({"type": "alert", "data": existing.model_dump()})
             return existing
         alert = Alert(id=self._next_id, key=key, level=level, message=message, timestamp=time.time())  # type: ignore[arg-type]
         self._next_id += 1
         self._alerts[key] = alert
         self._history.append(alert)
-        self._events.add("WARNING" if level != "critical" else "ERROR", "alert", message)
+        event_lvl = "INFO" if level.lower() in ("info", "notice") else ("ERROR" if level.lower() == "critical" else "WARNING")
+        self._events.add(event_lvl, "alert", message)
         self._broadcast({"type": "alert", "data": alert.model_dump()})
         return alert
 
@@ -92,6 +99,10 @@ class AlertManager:
             alert.active = False
             self._events.add("INFO", "alert", f"Cleared: {alert.message}")
             self._broadcast({"type": "alert", "data": alert.model_dump()})
+
+    def clear_alert(self, key: str) -> None:
+        """Alias for clear(key)."""
+        self.clear(key)
 
     def acknowledge(self, alert_id: int) -> Optional[Alert]:
         for alert in self._alerts.values():

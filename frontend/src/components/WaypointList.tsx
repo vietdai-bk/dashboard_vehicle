@@ -75,25 +75,37 @@ export function WaypointList({ mission, editable, onUpdate, onDelete, onReorder,
                 {mission?.sampling && i + 1 === mission.current_waypoint && (
                   <span
                     className="badge warn mono"
-                    style={{ fontSize: 10, padding: "2px 6px", display: "inline-flex", alignItems: "center", gap: 4 }}
+                    style={{ fontSize: 10, padding: "2px 6px", display: "inline-flex", alignItems: "center", gap: 4, background: "#0284c7", color: "#fff", borderColor: "#38bdf8" }}
                     title={mission.sampling_message || "Đang dừng 1 phút lấy mẫu..."}
                   >
-                    <span>🔬 ĐANG LẤY MẪU</span>
+                    <span>⏳ ĐANG LẤY MẪU</span>
                     {mission.sampling_remaining_s !== undefined && mission.sampling_remaining_s > 0 && (
                       <b>{Math.round(mission.sampling_remaining_s)}s</b>
                     )}
                   </span>
                 )}
                 {wp.telemetry && (
-                  <button
-                    type="button"
-                    className="badge ok mono"
-                    style={{ cursor: "pointer", border: 0, padding: "2px 6px" }}
-                    onClick={() => onSelect?.(wp.id)}
-                    title={`AQI: ${wp.telemetry.aqi != null ? wp.telemetry.aqi.toFixed(0) : "--"}. Nhấp để xem thông số chi tiết`}
-                  >
-                    AQI {wp.telemetry.aqi != null ? wp.telemetry.aqi.toFixed(0) : "--"}
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className="badge ok mono"
+                      style={{ cursor: "pointer", border: 0, padding: "2px 6px" }}
+                      onClick={() => onSelect?.(wp.id)}
+                      title={`AQI trung bình: ${wp.telemetry.aqi != null ? wp.telemetry.aqi.toFixed(0) : "--"} (${wp.sample_count || 60} mẫu). Nhấp để xem chi tiết`}
+                    >
+                      AQI {wp.telemetry.aqi != null ? wp.telemetry.aqi.toFixed(0) : "--"}
+                    </button>
+                    <a
+                      href={`/api/mission/waypoints/${wp.id}/csv`}
+                      download={wp.csv_file || `wp${wp.order || i + 1}_samples.csv`}
+                      className="badge info mono"
+                      style={{ textDecoration: "none", fontSize: 9.5, padding: "2px 5px", display: "inline-flex", alignItems: "center", gap: 3, background: "rgba(2, 132, 199, 0.15)", color: "#0284c7", border: "1px solid #0284c7" }}
+                      title="Tải file CSV dữ liệu đo đạc tại waypoint này"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      📥 CSV
+                    </a>
+                  </>
                 )}
               </div>
               <div className="wp-alt-wrap">

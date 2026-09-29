@@ -28,6 +28,8 @@ class Waypoint(BaseModel):
     telemetry: Optional[Dict[str, Any]] = None
     reached_at: Optional[float] = None
     is_turn: bool = False
+    csv_file: Optional[str] = None
+    sample_count: int = 0
 
 
 class WaypointCreate(BaseModel):

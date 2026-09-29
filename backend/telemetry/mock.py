@@ -79,6 +79,9 @@ class MockTelemetryProvider(TelemetryProvider):
         self.is_sampling = False
         self.sampling_start_time = 0.0
         self.sampling_duration = 60.0        # Dừng 1 phút (60 giây) để lấy mẫu tại mỗi waypoint
+        self.sampling_samples: list[dict[str, Any]] = []
+        self._last_sampling_sample_t = 0.0
+        self.completed_wp_info: Optional[dict[str, Any]] = None
         self._t = 0.0
         self._last_mission_emit = 0.0
         self._last_sensor_emit = 0.0
@@ -267,15 +270,47 @@ class MockTelemetryProvider(TelemetryProvider):
             self.lat = current_wp["lat"]
             self.lon = current_wp["lon"]
 
+            # Lấy mẫu định kỳ mỗi giây trong 1 phút dừng
+            if self._t - self._last_sampling_sample_t >= 1.0:
+                self._last_sampling_sample_t = self._t
+                sample = self._generate_sensor_reading()
+                sample["timestamp"] = time.time()
+                sample["lat"] = self.lat
+                sample["lon"] = self.lon
+                sample["alt"] = self.altitude
+                self.sampling_samples.append(sample)
+
             if elapsed >= self.sampling_duration:
                 self.is_sampling = False
                 wp_name = current_wp.get("name") or f"WP{self.wp_index + 1:02d}"
+                wp_id = current_wp.get("id", self.wp_index + 1)
+
+                from ..mission.manager import save_waypoint_csv
+                samples_to_save = self.sampling_samples or [self._generate_sensor_reading()]
+                filename, _, avg_tele = save_waypoint_csv(
+                    wp_id=wp_id,
+                    wp_name=wp_name,
+                    lat=current_wp["lat"],
+                    lon=current_wp["lon"],
+                    alt=current_wp.get("altitude", 0.0),
+                    samples=samples_to_save,
+                )
+                self.completed_wp_info = {
+                    "index": self.wp_index,
+                    "id": wp_id,
+                    "telemetry": avg_tele,
+                    "csv_file": filename,
+                    "sample_count": len(samples_to_save),
+                    "reached_at": time.time(),
+                }
                 self.completed += 1
                 self.wp_index += 1
+                self.sampling_samples = []
+
                 self._emit({
                     "type": "log",
                     "level": "INFO",
-                    "message": f"Hoàn thành lấy mẫu tại {wp_name}. Xe tiếp tục hành trình ({self.completed}/{len(self.waypoints)} WP)..."
+                    "message": f"Hoàn thành lấy mẫu tại {wp_name} ({len(samples_to_save)} mẫu -> {filename}). Xe tiếp tục hành trình ({self.completed}/{len(self.waypoints)} WP)..."
                 })
                 if self.wp_index >= len(self.waypoints):
                     self._finish_mission("COMPLETED")
@@ -322,6 +357,16 @@ class MockTelemetryProvider(TelemetryProvider):
                     self.is_sampling = True
                     self.sampling_start_time = self._t
                     self.sampling_duration = 60.0
+                    self.sampling_samples = []
+                    self._last_sampling_sample_t = self._t
+                    # Thu thập mẫu đầu tiên
+                    first_s = self._generate_sensor_reading()
+                    first_s["timestamp"] = time.time()
+                    first_s["lat"] = current_wp["lat"]
+                    first_s["lon"] = current_wp["lon"]
+                    first_s["alt"] = current_wp.get("altitude", 0.0)
+                    self.sampling_samples.append(first_s)
+
                     self.speed_mps = 0.0
                     self.lat = current_wp["lat"]
                     self.lon = current_wp["lon"]
@@ -366,6 +411,21 @@ class MockTelemetryProvider(TelemetryProvider):
             self._last_heartbeat = self._t
             self._emit({"type": "heartbeat"})
 
+    def _generate_sensor_reading(self) -> dict[str, Any]:
+        t = self._t
+        data = {
+            "temperature": round(28.0 + 1.5 * math.sin(t / 60) + random.gauss(0, 0.05), 2),
+            "humidity": round(70.0 + 4 * math.sin(t / 90 + 1) + random.gauss(0, 0.2), 1),
+            "co2": round(640 + 60 * math.sin(t / 45) + random.gauss(0, 3), 0),
+            "co": round(max(0, 2.5 + 0.5 * math.sin(t / 80) + random.gauss(0, 0.2)), 2),
+            "pm25": round(max(0, 18 + 5 * math.sin(t / 70) + random.gauss(0, 0.5)), 1),
+            "tvoc": round(max(0, 120 + 15 * math.sin(t / 50) + random.gauss(0, 5)), 0),
+            "nox": round(max(0, 45 + 10 * math.sin(t / 60) + random.gauss(0, 2)), 0),
+        }
+        from .aqi import calculate_composite_aqi
+        data["aqi"] = calculate_composite_aqi(data)
+        return data
+
     def _emit_telemetry(self) -> None:
         rem_s = max(0.0, self.sampling_duration - (self._t - self.sampling_start_time)) if self.is_sampling else 0.0
         wp_label = self.waypoints[self.wp_index].get("name") or f"WP{self.wp_index + 1:02d}" if (self.is_sampling and self.wp_index < len(self.waypoints)) else ""
@@ -391,19 +451,8 @@ class MockTelemetryProvider(TelemetryProvider):
         })
 
     def _emit_sensor(self) -> None:
-        t = self._t
-        data = {
-            "type": "sensor",
-            "temperature": round(28.0 + 1.5 * math.sin(t / 60) + random.gauss(0, 0.05), 2),
-            "humidity": round(70.0 + 4 * math.sin(t / 90 + 1) + random.gauss(0, 0.2), 1),
-            "co2": round(640 + 60 * math.sin(t / 45) + random.gauss(0, 3), 0),
-            "co": round(max(0, 2.5 + 0.5 * math.sin(t / 80) + random.gauss(0, 0.2)), 2),
-            "pm25": round(max(0, 18 + 5 * math.sin(t / 70) + random.gauss(0, 0.5)), 1),
-            "tvoc": round(max(0, 120 + 15 * math.sin(t / 50) + random.gauss(0, 5)), 0),
-            "nox": round(max(0, 45 + 10 * math.sin(t / 60) + random.gauss(0, 2)), 0),
-        }
-        from .aqi import calculate_composite_aqi
-        data["aqi"] = calculate_composite_aqi(data)
+        data = self._generate_sensor_reading()
+        data["type"] = "sensor"
         self._emit(data)
 
     def _emit_mission(self, force: bool = False) -> None:
@@ -419,7 +468,7 @@ class MockTelemetryProvider(TelemetryProvider):
         rem_s = max(0.0, self.sampling_duration - (self._t - self.sampling_start_time)) if self.is_sampling else 0.0
         wp_label = self.waypoints[self.wp_index].get("name") or f"WP{self.wp_index + 1:02d}" if (self.is_sampling and self.wp_index < len(self.waypoints)) else ""
         sampling_msg = f"Đang chờ lấy mẫu tại {wp_label} (còn {int(rem_s)}s)..." if self.is_sampling else ""
-        self._emit({
+        packet: dict[str, Any] = {
             "type": "mission",
             "state": self.mission_state,
             "current_waypoint": min(self.wp_index + 1, total) if total else 0,
@@ -430,4 +479,8 @@ class MockTelemetryProvider(TelemetryProvider):
             "sampling_waypoint": self.wp_index + 1 if self.is_sampling else 0,
             "sampling_remaining_s": round(rem_s, 0),
             "sampling_message": sampling_msg,
-        })
+        }
+        if self.completed_wp_info:
+            packet["completed_wp"] = self.completed_wp_info
+            self.completed_wp_info = None
+        self._emit(packet)

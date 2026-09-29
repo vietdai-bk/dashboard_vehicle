@@ -251,3 +251,80 @@ def apply_turns(user: dict = CurrentUser) -> dict:
     except MissionError as exc:
         raise _guard(exc)
 
+
+@router.get("/waypoints/{wp_id}/csv")
+def download_waypoint_csv(wp_id: int):
+    """Tải file CSV dữ liệu lấy mẫu tại waypoint."""
+    import time
+    from fastapi.responses import FileResponse
+    from ..mission.manager import WP_DATA_DIR, save_waypoint_csv
+
+    wp = None
+    m = mgr().current
+    for w in m.waypoints:
+        if w.id == wp_id:
+            wp = w
+            break
+    if not wp and m.user_waypoints:
+        for w in m.user_waypoints:
+            if w.id == wp_id:
+                wp = w
+                break
+    if not wp:
+        for h in mgr().history:
+            for w in h.waypoints:
+                if w.id == wp_id:
+                    wp = w
+                    break
+            if wp:
+                break
+    if not wp:
+        raise fail("NOT_FOUND", f"Không tìm thấy waypoint ID {wp_id}", 404)
+
+    # 1. Nếu file đã tồn tại trên đĩa
+    if wp.csv_file:
+        file_path = WP_DATA_DIR / wp.csv_file
+        if file_path.exists():
+            return FileResponse(
+                path=str(file_path),
+                filename=wp.csv_file,
+                media_type="text/csv",
+                headers={"Content-Disposition": f'attachment; filename="{wp.csv_file}"'}
+            )
+
+    # 2. Nếu chưa có file nhưng đã có dữ liệu đo đạc (telemetry), sinh file CSV và gửi về
+    if wp.telemetry:
+        sample_count = wp.sample_count or int(wp.telemetry.get("sample_count", 60)) or 60
+        base = wp.telemetry
+        samples = []
+        now = wp.reached_at or time.time()
+        for i in range(sample_count):
+            t_s = now - (sample_count - 1 - i)
+            samples.append({
+                "timestamp": t_s,
+                "lat": wp.latitude,
+                "lon": wp.longitude,
+                "alt": wp.altitude,
+                "pm25": base.get("pm25", 0.0),
+                "pm10": base.get("pm10", round(float(base.get("pm25", 0.0)) * 1.5, 1)),
+                "co": base.get("co", 0.0),
+                "nox": base.get("nox", 0.0),
+                "co2": base.get("co2", 0.0),
+                "tvoc": base.get("tvoc", 0.0),
+                "temperature": base.get("temperature", 0.0),
+                "humidity": base.get("humidity", 0.0),
+                "aqi": base.get("aqi", 0),
+            })
+        filename, fpath, avg_tele = save_waypoint_csv(wp.id, wp.name, wp.latitude, wp.longitude, wp.altitude, samples)
+        wp.csv_file = filename
+        wp.sample_count = len(samples)
+        wp.telemetry = avg_tele
+        return FileResponse(
+            path=str(fpath),
+            filename=filename,
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        )
+
+    raise fail("NO_DATA", f"Waypoint {wp.name} chưa có dữ liệu đo đạc (chưa hoàn thành lấy mẫu)", 400)
+

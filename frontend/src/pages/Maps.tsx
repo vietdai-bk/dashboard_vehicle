@@ -13,6 +13,7 @@ import type { Waypoint } from "../types";
 
 export function MapsPage() {
   const mission = useStore((s) => s.mission);
+  const vehicle = useStore((s) => s.vehicle);
   const alerts = useStore((s) => s.alerts.filter((a) => a.active));
   const [busy, setBusy] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
@@ -78,11 +79,11 @@ export function MapsPage() {
         <MissionHistory />
       </div>
       <div className="col map-col">
-        {mission?.sampling && (
+        {Boolean(mission?.sampling || vehicle?.sampling) && (
           <div
             className="alert-banner info"
             style={{
-              background: "rgba(2, 132, 199, 0.12)",
+              background: "rgba(2, 132, 199, 0.15)",
               border: "1px solid #0284c7",
               color: "var(--text)",
               display: "flex",
@@ -91,6 +92,7 @@ export function MapsPage() {
               padding: "10px 14px",
               borderRadius: "var(--radius)",
               marginBottom: 8,
+              boxShadow: "0 0 12px rgba(2, 132, 199, 0.25)",
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -101,22 +103,26 @@ export function MapsPage() {
                   borderRadius: "50%",
                   background: "#0284c7",
                   display: "inline-block",
-                  boxShadow: "0 0 0 4px rgba(2, 132, 199, 0.3)",
+                  boxShadow: "0 0 0 4px rgba(2, 132, 199, 0.35)",
+                  animation: "pulse-scale 1.5s infinite ease-in-out",
                 }}
               />
-              <span style={{ fontWeight: 700, color: "#0284c7" }}>ĐANG CHỜ LẤY MẪU QUAN TRẮC:</span>
-              <span>{mission.sampling_message || `Xe đang dừng 1 phút lấy mẫu tại Waypoint #${mission.current_waypoint}...`}</span>
+              <span style={{ fontWeight: 700, color: "#0284c7" }}>⏳ ĐANG CHỜ LẤY MẪU QUAN TRẮC:</span>
+              <span style={{ fontWeight: 600 }}>
+                {mission?.sampling_message || vehicle?.sampling_message || `Xe đang dừng 1 phút lấy mẫu tại Waypoint #${mission?.current_waypoint || vehicle?.current_waypoint || 1}...`}
+              </span>
             </div>
-            {mission.sampling_remaining_s !== undefined && mission.sampling_remaining_s > 0 && (
-              <span className="badge info mono" style={{ fontSize: 13, padding: "3px 10px", fontWeight: 700 }}>
-                Còn {Math.round(mission.sampling_remaining_s)}s
+            {((mission?.sampling_remaining_s ?? vehicle?.sampling_remaining_s) !== undefined &&
+              (mission?.sampling_remaining_s ?? vehicle?.sampling_remaining_s)! > 0) && (
+              <span className="badge info mono" style={{ fontSize: 13, padding: "4px 12px", fontWeight: 700, background: "#0284c7", color: "#fff" }}>
+                Còn {Math.round((mission?.sampling_remaining_s ?? vehicle?.sampling_remaining_s)!)}s
               </span>
             )}
           </div>
         )}
-        {alerts.length > 0 && (
-          <div className={`alert-banner ${alerts.some((a) => a.level === "critical") ? "critical" : "warning"}`}>
-            {alerts[0]!.message}{alerts.length > 1 && ` (+${alerts.length - 1} more)`}
+        {alerts.filter((a) => a.key !== "SAMPLING").length > 0 && (
+          <div className={`alert-banner ${alerts.filter((a) => a.key !== "SAMPLING").some((a) => a.level === "critical") ? "critical" : "warning"}`}>
+            {alerts.filter((a) => a.key !== "SAMPLING")[0]!.message}{alerts.filter((a) => a.key !== "SAMPLING").length > 1 && ` (+${alerts.filter((a) => a.key !== "SAMPLING").length - 1} more)`}
           </div>
         )}
         <div className="map-holder">

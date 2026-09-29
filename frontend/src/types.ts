@@ -21,6 +21,8 @@ export interface Waypoint {
   telemetry?: Telemetry;
   reached_at?: number;
   is_turn?: boolean;
+  csv_file?: string;
+  sample_count?: number;
 }
 
 
